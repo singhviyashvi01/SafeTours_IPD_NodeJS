@@ -9,7 +9,8 @@ import { Input } from '../../components/Input';
 import { Button } from '../../components/Button';
 import { colors, spacing } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
-import { authService } from '../../services/auth';
+import { useAuth } from '../../context/AuthContext';
+// import { authService } from '../../services/auth'; // bypassed for UI testing
 const signupSchema = z.object({
     name: z.string().min(2, 'Name is required'),
     email: z.string().email('Invalid email address'),
@@ -17,22 +18,14 @@ const signupSchema = z.object({
 });
 export const SignupScreen = () => {
     const navigation = useNavigation();
+    const { setUser } = useAuth();
     const [isLoading, setIsLoading] = React.useState(false);
     const { control, handleSubmit } = useForm({
         resolver: zodResolver(signupSchema),
     });
     const onSubmit = async (data) => {
-        setIsLoading(true);
-        try {
-            await authService.signup(data.email, data.password, data.name);
-            navigation.navigate('Login'); // Navigate to login after signup
-        }
-        catch (e) {
-            console.error(e);
-        }
-        finally {
-            setIsLoading(false);
-        }
+        // TEMP: bypass auth for UI testing — set a mock user to pass the auth guard
+        setUser({ name: data.name, email: data.email, id: 'mock-user' });
     };
     return (<Screen style={styles.container}>
       <View style={styles.header}>

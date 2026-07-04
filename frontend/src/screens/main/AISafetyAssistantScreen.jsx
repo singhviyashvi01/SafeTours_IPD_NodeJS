@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
-import { colors, spacing, shapes } from '../../theme/theme';
+import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 
 export const AISafetyAssistantScreen = () => {

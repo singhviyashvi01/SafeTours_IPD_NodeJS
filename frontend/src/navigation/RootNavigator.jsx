@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthNavigator } from './AuthNavigator';
 import { MainTabs } from './MainTabs';
 import { NotificationsScreen } from '../screens/main/NotificationsScreen';
@@ -10,7 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import { StyleSheet, View } from 'react-native';
 import { colors } from '../theme/theme';
 
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
 
 const MainNavigator = () => (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -23,6 +23,7 @@ const MainNavigator = () => (
 
 export const RootNavigator = () => {
     const { user, isLoading } = useAuth();
+    console.log("RootNavigator rendering, user =", user, "isLoading =", isLoading);
     
     // If there's an initial auth check loading state, we would handle it here.
     return (
