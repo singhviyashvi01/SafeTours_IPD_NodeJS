@@ -7,6 +7,9 @@ const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/authRoutes');
 const emergencyContactRoutes = require('./routes/emergencyContactRoutes');
+const journeyRoutes = require('./routes/journeyRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+const sosRoutes = require('./routes/sosRoutes');
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -59,6 +62,9 @@ app.get('/health', (req, res) => {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/contacts', emergencyContactRoutes);
+app.use('/api/journey', journeyRoutes);
+app.use('/api/location', locationRoutes);
+app.use('/api/sos', sosRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
