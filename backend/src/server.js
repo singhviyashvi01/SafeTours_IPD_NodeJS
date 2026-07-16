@@ -1,4 +1,5 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 console.log("1. Environment loaded");
 
@@ -17,11 +18,23 @@ const startServer = async () => {
 
     console.log("5. MongoDB connected");
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
+
+    server.on("error", (err) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(`\n❌ Port ${PORT} is already in use by another process.`);
+        console.error(`   Run: lsof -iTCP:${PORT} -sTCP:LISTEN  to see what is using it.`);
+        console.error(`   Then change PORT in your .env file to a free port (e.g. 5001, 8080).\n`);
+      } else {
+        console.error("Server error:", err);
+      }
+      process.exit(1);
+    });
   } catch (err) {
-    console.error(err);
+    console.error("Startup failed:", err);
+    process.exit(1);
   }
 };
 
