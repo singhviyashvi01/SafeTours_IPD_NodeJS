@@ -17,7 +17,7 @@ const {
   validateStartJourney,
   validateUpdateJourneyStatus,
   validateJourneyRequest
-} = require('../middlewares/journeyValidator');
+} = require('../middleware/journeyValidator');
 
 /**
  * POST /api/journey/start

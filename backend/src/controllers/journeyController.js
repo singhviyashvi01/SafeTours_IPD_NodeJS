@@ -6,7 +6,7 @@ const journeyService = require('../services/journeyService');
  */
 const startJourney = async (req, res) => {
   try {
-    const userId = req.user.id; // Assumes verifyJWT middleware sets req.user
+    const userId = req.user._id; // Assumes verifyJWT middleware sets req.user
     const journeyData = req.body;
     
     const newJourney = await journeyService.startJourney(userId, journeyData);
@@ -33,7 +33,7 @@ const startJourney = async (req, res) => {
  */
 const updateJourney = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const journeyId = req.params.id;
     const updateData = req.body;
     
@@ -60,7 +60,7 @@ const updateJourney = async (req, res) => {
  */
 const endJourney = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const journeyId = req.params.id;
     const { status } = req.body; // Expected to be validated as COMPLETED or CANCELLED
     
@@ -94,7 +94,7 @@ const endJourney = async (req, res) => {
  */
 const getJourneyStatus = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user._id;
     const activeJourney = await journeyService.getJourneyStatus(userId);
     
     // Applying the mobile-friendly empty state pattern (return 200 OK with null)

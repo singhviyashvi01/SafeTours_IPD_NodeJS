@@ -5,11 +5,13 @@ const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
+// import routes
 const authRoutes = require('./routes/authRoutes');
 const emergencyContactRoutes = require('./routes/emergencyContactRoutes');
-const journeyRoutes = require('./routes/journeyRoutes');
 const locationRoutes = require('./routes/locationRoutes');
+const journeyRoutes = require('./routes/journeyRoutes');
 const sosRoutes = require('./routes/sosRoutes');
+
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -27,7 +29,7 @@ app.use(
 
 // ─── Request rate limiting (auth routes get tighter limits) ──────────────────
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
@@ -62,8 +64,8 @@ app.get('/health', (req, res) => {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/contacts', emergencyContactRoutes);
-app.use('/api/journey', journeyRoutes);
 app.use('/api/location', locationRoutes);
+app.use('/api/journey', journeyRoutes);
 app.use('/api/sos', sosRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ app.use((req, res) => {
   res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` });
 });
 
-// ─── Global error handler (must be last) ─────────────────────────────────────
+// ─── Global error handler (must be last) ──────────────────────────────────────
 app.use(errorMiddleware);
 
 module.exports = app;
