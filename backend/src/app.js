@@ -5,7 +5,10 @@ const morgan = require('morgan');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
+//import routes
 const authRoutes = require('./routes/authRoutes');
+const locationRoutes = require('./routes/locationRoutes');
+const journeyRoutes = require('./routes/journeyRoutes');
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -57,6 +60,10 @@ app.get('/health', (req, res) => {
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRoutes);
+
+app.use('/api/location', locationRoutes);
+
+app.use('/api/journey', journeyRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {

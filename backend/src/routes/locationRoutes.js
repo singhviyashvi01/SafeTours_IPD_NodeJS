@@ -11,7 +11,7 @@ const { syncLocation, getLatestLocation } = require('../controllers/locationCont
 const { 
   validateLocationRules, 
   validateLocationRequest 
-} = require('../middlewares/locationValidator');
+} = require('../middleware/locationValidator');
 
 /**
  * POST /api/location

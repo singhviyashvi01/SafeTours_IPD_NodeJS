@@ -7,7 +7,7 @@ const locationService = require('../services/locationService');
 const syncLocation = async (req, res) => {
   try {
     // Assuming an auth middleware (e.g., JWT) has attached the user object to the request
-    const userId = req.user.id; 
+    const userId = req.user._id; 
     const locationData = req.body;
 
     // The controller delegates ALL database logic to the Service Layer
