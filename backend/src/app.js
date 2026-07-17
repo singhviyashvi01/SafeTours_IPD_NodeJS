@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const authRoutes = require('./routes/authRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const journeyRoutes = require('./routes/journeyRoutes');
+const weatherRoutes = require('./routes/weather.routes');
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
 const app = express();
@@ -64,6 +65,8 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/location', locationRoutes);
 
 app.use('/api/journey', journeyRoutes);
+
+app.use('/api/weather', weatherRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
