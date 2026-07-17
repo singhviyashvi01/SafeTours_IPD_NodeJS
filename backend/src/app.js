@@ -11,6 +11,7 @@ const emergencyContactRoutes = require('./routes/emergencyContactRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const journeyRoutes = require('./routes/journeyRoutes');
 const sosRoutes = require('./routes/sosRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
@@ -67,6 +68,7 @@ app.use('/api/contacts', emergencyContactRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/journey', journeyRoutes);
 app.use('/api/sos', sosRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {

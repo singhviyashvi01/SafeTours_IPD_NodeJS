@@ -2,6 +2,7 @@ const SOSHistory = require('../models/SOSHistory');
 const Location = require('../models/Location');
 const Journey = require('../models/Journey');
 const EmergencyContact = require('../models/EmergencyContact');
+const notificationService = require('./notificationService');
 const ApiError = require('../utils/apiError');
 
 class SOSService {
@@ -66,6 +67,26 @@ class SOSService {
       triggeredAt: new Date(),
       reason: reason || '',
       notifiedContacts: notifiedContactIds,
+    });
+
+    // 6. Log a notification record for this SOS trigger
+    // Fire-and-forget: notification failure must not roll back the SOS event
+    notificationService.createNotification({
+      userId,
+      type: 'SOS',
+      title: 'Emergency SOS Activated',
+      message: `An ${type} SOS alert was triggered${journeyDoc ? ' during your active journey' : ''}. Emergency contacts have been notified.`,
+      metadata: {
+        sosId: sosRecord._id,
+        sosType: type,
+        locationId: locationDoc._id,
+        coordinates: locationDoc.location?.coordinates ?? null,
+        journeyId: journeyDoc ? journeyDoc._id : null,
+        triggeredAt: sosRecord.triggeredAt,
+      },
+    }).catch((err) => {
+      // Log the error but do not throw — SOS record is already safely persisted
+      console.error('[NotificationService] Failed to create SOS notification:', err.message);
     });
 
     return sosRecord;
