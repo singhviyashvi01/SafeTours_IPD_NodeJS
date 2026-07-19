@@ -58,10 +58,13 @@ const getCurrentWeather = async (lat, lon) => {
     });
 
     const weatherData = response?.data || {};
+    const rainfall = weatherData.rain?.['1h'] ?? weatherData.rain?.['3h'] ?? null;
+    const cloudiness = weatherData.clouds?.all ?? null;
 
     // Purpose of this response formatting:
     // Return only the fields required by the backend contract and avoid exposing
-    // unrelated OpenWeather payload content.
+    // unrelated OpenWeather payload content while also carrying the extra values
+    // needed by the environmental flood-risk module.
     return {
       temperature: weatherData.main?.temp ?? null,
       feelsLike: weatherData.main?.feels_like ?? null,
@@ -70,6 +73,8 @@ const getCurrentWeather = async (lat, lon) => {
       visibility: weatherData.visibility ?? null,
       weather: weatherData.weather?.[0]?.main ?? null,
       weatherDescription: weatherData.weather?.[0]?.description ?? null,
+      rainfall,
+      cloudiness,
     };
   } catch (error) {
     // Purpose of this error handling:
