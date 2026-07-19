@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../../context/AuthContext';
+import { profileService } from '../../services/profile';
 
 export const SettingsScreen = () => {
+    const navigation = useNavigation();
+    const { logout } = useAuth();
     const [offlineMode, setOfflineMode] = useState(false);
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
     const [locationPermissions, setLocationPermissions] = useState(true);
+    const [profile, setProfile] = useState(null);
+    useEffect(() => { profileService.getProfile().then(setProfile); }, []);
 
     const SettingsRow = ({ icon, title, subtitle, rightElement, onPress }) => (
         <TouchableOpacity 
@@ -42,12 +49,12 @@ export const SettingsScreen = () => {
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 
                 {/* Profile Card Summary */}
-                <TouchableOpacity style={styles.profileCard}>
+                <TouchableOpacity style={styles.profileCard} onPress={() => navigation.navigate('Profile')}>
                     <View style={styles.avatar}>
-                        <Text variant="headlineSm" color={colors.white}>JD</Text>
+                        <Text variant="headlineSm" color={colors.white}>{(profile?.name || 'ST').slice(0, 2).toUpperCase()}</Text>
                     </View>
                     <View style={styles.profileInfo}>
-                        <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>Jane Doe</Text>
+                        <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>{profile?.name || 'SafeTours User'}</Text>
                         <Text variant="bodyMd" color={colors['on-surface-variant']}>Manage account & safety profile</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color={colors.outline} />
@@ -82,6 +89,7 @@ export const SettingsScreen = () => {
                         icon="notifications" 
                         title="Notifications" 
                         subtitle="Alerts, warnings, and system updates"
+                        onPress={() => navigation.navigate('Notifications')}
                         rightElement={
                             <Switch 
                                 value={notificationsEnabled} 
@@ -139,7 +147,7 @@ export const SettingsScreen = () => {
                     />
                 </View>
 
-                <TouchableOpacity style={styles.logoutBtn}>
+                <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
                     <Text variant="labelLg" color={colors.error} style={{ fontWeight: 'bold' }}>Log Out</Text>
                 </TouchableOpacity>
 

@@ -4,11 +4,13 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
 export const LiveJourneyScreen = () => {
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
+    const navigation = useNavigation();
 
     return (
         <Screen style={styles.container}>
@@ -23,14 +25,14 @@ export const LiveJourneyScreen = () => {
 
             {/* Top Destination Header */}
             <View style={styles.topHeader}>
-                <TouchableOpacity style={styles.backBtn}>
+                <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                     <Ionicons name="arrow-back" size={24} color={colors['on-surface']} />
                 </TouchableOpacity>
                 <View style={styles.destinationBox}>
                     <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>Navigating To</Text>
                     <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>Victoria Station</Text>
                 </View>
-                <TouchableOpacity style={styles.cancelBtn}>
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
                     <Text variant="labelLg" color={colors.error}>Cancel</Text>
                 </TouchableOpacity>
             </View>
@@ -49,7 +51,7 @@ export const LiveJourneyScreen = () => {
             </View>
 
             {/* SOS FAB */}
-            <TouchableOpacity style={styles.sosFab}>
+            <TouchableOpacity style={styles.sosFab} onPress={() => navigation.navigate('SOS')}>
                 <Ionicons name="warning" size={32} color={colors.white} />
             </TouchableOpacity>
 

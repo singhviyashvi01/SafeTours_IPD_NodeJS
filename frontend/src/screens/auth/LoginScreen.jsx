@@ -11,8 +11,8 @@ import { colors, spacing } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 const loginSchema = z.object({
-    email: z.string().email('Invalid email address'),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
+    email: z.string().min(1, 'Email is required'),
+    password: z.string().min(1, 'Password is required'),
 });
 export const LoginScreen = () => {
     const navigation = useNavigation();
@@ -38,9 +38,6 @@ export const LoginScreen = () => {
       <View style={styles.form}>
         <Input control={control} name="email" label="Email Address" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none"/>
         <Input control={control} name="password" label="Password" placeholder="••••••••" secureTextEntry/>
-        <TouchableOpacity style={styles.forgotPassword} onPress={() => navigation.navigate('ForgotPassword')}>
-          <Text variant="labelMd" color={colors.primary}>Forgot Password?</Text>
-        </TouchableOpacity>
       </View>
 
       <View style={styles.footer}>
@@ -67,10 +64,6 @@ const styles = StyleSheet.create({
     },
     form: {
         flex: 1,
-    },
-    forgotPassword: {
-        alignSelf: 'flex-end',
-        marginTop: spacing.sm,
     },
     footer: {
         paddingBottom: spacing.lg,

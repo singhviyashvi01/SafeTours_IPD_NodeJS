@@ -8,12 +8,17 @@ import { IconText } from '../../components/IconText';
 import { Chip } from '../../components/Chip';
 import { colors, spacing, typography, shapes } from '../../theme/theme';
 import { dashboardService } from '../../services/dashboard';
+import { profileService } from '../../services/profile';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 export const HomeScreen = () => {
+    const navigation = useNavigation();
     const [data, setData] = useState(null);
+    const [profile, setProfile] = useState(null);
     useEffect(() => {
         dashboardService.getDashboardData().then(setData);
+        profileService.getProfile().then(setProfile);
     }, []);
 
     if (!data) {
@@ -37,12 +42,11 @@ export const HomeScreen = () => {
                         <View style={styles.onlineDot} />
                         <Text variant="labelMd" style={styles.onlineText}>ONLINE</Text>
                     </View>
-                    <View style={styles.profilePicContainer}>
-                        <Image 
-                            source={{ uri: 'https://i.pravatar.cc/100?img=11' }} 
-                            style={styles.profilePic} 
-                        />
-                    </View>
+                    <TouchableOpacity style={styles.profilePicContainer} onPress={() => navigation.navigate('Profile')}>
+                        {profile?.profileImage
+                            ? <Image source={{ uri: profile.profileImage }} style={styles.profilePic} />
+                            : <Ionicons name="person" size={20} color={colors.primary} />}
+                    </TouchableOpacity>
                 </View>
             </View>
 
@@ -51,7 +55,7 @@ export const HomeScreen = () => {
                 {/* Greeting */}
                 <View style={styles.greetingSection}>
                     <Text variant="bodyMd" color={colors['on-surface-variant']}>Good Morning,</Text>
-                    <Text variant="headlineLg" style={styles.greetingName}>Alex Morgan</Text>
+                    <Text variant="headlineLg" style={styles.greetingName}>{profile?.name || 'SafeTours User'}</Text>
                     <Text variant="bodyMd" color={colors.primary} style={styles.greetingSub}>Your safety summary for today.</Text>
                 </View>
 
@@ -110,19 +114,19 @@ export const HomeScreen = () => {
                 <View style={styles.quickActions}>
                     <Text variant="headlineSm" style={styles.sectionTitle}>Quick Actions</Text>
                     <View style={styles.actionGrid}>
-                        <TouchableOpacity style={styles.actionBtn}>
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('LiveJourney')}>
                             <View style={styles.actionIconWrapper}>
                                 <Ionicons name="location" size={24} color={colors.primary} />
                             </View>
                             <Text variant="labelMd">Share Location</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionBtn}>
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('EmergencyContacts')}>
                             <View style={styles.actionIconWrapper}>
                                 <Ionicons name="people" size={24} color={colors.primary} />
                             </View>
                             <Text variant="labelMd">Contacts</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.actionBtn}>
+                        <TouchableOpacity style={styles.actionBtn} onPress={() => navigation.navigate('MedicalId')}>
                             <View style={styles.actionIconWrapper}>
                                 <Ionicons name="medkit" size={24} color={colors.primary} />
                             </View>
@@ -137,7 +141,7 @@ export const HomeScreen = () => {
 
             {/* Floating SOS Button */}
             <View style={styles.floatingSosContainer}>
-                <SOSButton size={64} style={styles.floatingSos} />
+                <SOSButton onPress={() => navigation.navigate('SOS')} size={64} style={styles.floatingSos} />
             </View>
         </Screen>
     );

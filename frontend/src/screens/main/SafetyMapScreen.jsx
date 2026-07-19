@@ -4,10 +4,12 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
 export const SafetyMapScreen = () => {
+    const navigation = useNavigation();
     const [searchQuery, setSearchQuery] = useState('');
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
 
@@ -86,7 +88,7 @@ export const SafetyMapScreen = () => {
             </View>
 
             {/* Main SOS FAB */}
-            <TouchableOpacity style={styles.sosFab}>
+            <TouchableOpacity style={styles.sosFab} onPress={() => navigation.navigate('SOS')}>
                 <Ionicons name="warning" size={32} color={colors['on-error']} />
             </TouchableOpacity>
 
@@ -133,7 +135,7 @@ export const SafetyMapScreen = () => {
                 </View>
 
                 <View style={styles.actionButtonsRow}>
-                    <TouchableOpacity style={styles.routeBtn}>
+                    <TouchableOpacity style={styles.routeBtn} onPress={() => navigation.navigate('LiveJourney')}>
                         <Ionicons name="navigate" size={20} color={colors['on-primary']} />
                         <Text variant="labelLg" color={colors['on-primary']}>Route Home</Text>
                     </TouchableOpacity>

@@ -12,20 +12,25 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 // import { authService } from '../../services/auth'; // bypassed for UI testing
 const signupSchema = z.object({
-    name: z.string().min(2, 'Name is required'),
-    email: z.string().email('Invalid email address'),
-    password: z.string().min(6, 'Password must be at least 6 characters'),
+    name: z.string().min(1, 'Name is required'),
+    email: z.string().min(1, 'Email is required'),
+    password: z.string().min(1, 'Password is required'),
 });
 export const SignupScreen = () => {
     const navigation = useNavigation();
-    const { setUser } = useAuth();
+    const { signup } = useAuth();
     const [isLoading, setIsLoading] = React.useState(false);
     const { control, handleSubmit } = useForm({
         resolver: zodResolver(signupSchema),
     });
     const onSubmit = async (data) => {
         // TEMP: bypass auth for UI testing — set a mock user to pass the auth guard
-        setUser({ name: data.name, email: data.email, id: 'mock-user' });
+        setIsLoading(true);
+        try {
+            await signup(data.name, data.email, data.password);
+        } finally {
+            setIsLoading(false);
+        }
     };
     return (<Screen style={styles.container}>
       <View style={styles.header}>
