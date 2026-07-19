@@ -13,6 +13,7 @@ const locationRoutes = require('./routes/locationRoutes');
 const journeyRoutes = require('./routes/journeyRoutes');
 const weatherRoutes = require('./routes/weather.routes');
 const environmentRoutes = require('./routes/environment.routes');
+const crowdRoutes = require('./routes/crowd.routes');
 const sosRoutes = require('./routes/sosRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 
@@ -85,6 +86,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/weather', weatherRoutes);
 
 app.use('/api/environment', environmentRoutes);
+
+app.use('/api/crowd', crowdRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
