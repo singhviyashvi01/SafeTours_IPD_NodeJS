@@ -22,6 +22,10 @@ const startServer = async () => {
     const { startExpiryScheduler } = require('./scheduler/communityExpiryJob');
     startExpiryScheduler();
 
+    // Start news risk scheduler background job
+    const { startNewsScheduler } = require('./scheduler/newsScheduler');
+    startNewsScheduler();
+
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
