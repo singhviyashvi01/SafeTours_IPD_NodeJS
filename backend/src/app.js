@@ -14,6 +14,7 @@ const journeyRoutes = require('./routes/journeyRoutes');
 const weatherRoutes = require('./routes/weather.routes');
 const environmentRoutes = require('./routes/environment.routes');
 const crowdRoutes = require('./routes/crowd.routes');
+const crimeRoutes = require('./modules/crime/crimeRoutes');
 const dangerZoneRoutes = require('./routes/dangerZone.routes');
 const sosRoutes = require('./routes/sosRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
@@ -89,6 +90,8 @@ app.use('/api/weather', weatherRoutes);
 app.use('/api/environment', environmentRoutes);
 
 app.use('/api/crowd', crowdRoutes);
+
+app.use('/api/crime', crimeRoutes);
 
 app.use('/api/danger-zones', dangerZoneRoutes);
 
