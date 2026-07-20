@@ -1,0 +1,388 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours SOS + Shadow Mode</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect">
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet">
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#914c22",
+                    "on-primary": "#ffffff",
+                    "on-background": "#211a16",
+                    "secondary-container": "#ff9a66",
+                    "surface": "#fff8f6",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed": "#341100",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#46aeb4",
+                    "tertiary-fixed": "#8ff2f8",
+                    "on-primary-fixed": "#331100",
+                    "on-tertiary-fixed-variant": "#004f53",
+                    "tertiary": "#00696e",
+                    "on-tertiary-fixed": "#002021",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#fdeee7",
+                    "outline-variant": "#d9c2b7",
+                    "inverse-surface": "#372f2b",
+                    "on-primary-fixed-variant": "#73350c",
+                    "surface-container": "#faebe4",
+                    "surface-container-highest": "#eedfd9",
+                    "on-secondary-container": "#763002",
+                    "background": "#fff8f6",
+                    "primary-fixed-dim": "#ffb68f",
+                    "secondary-fixed": "#ffdbcb",
+                    "surface-bright": "#fff8f6",
+                    "surface-dim": "#e6d7d1",
+                    "on-surface-variant": "#54433b",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#ffb692",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed-variant": "#783104",
+                    "surface-container-high": "#f4e5df",
+                    "on-error-container": "#93000a",
+                    "surface-variant": "#eedfd9",
+                    "secondary": "#97481b",
+                    "surface-container-low": "#fff1eb",
+                    "on-tertiary-container": "#003d40",
+                    "on-surface": "#211a16",
+                    "tertiary-fixed-dim": "#72d6dc",
+                    "on-primary-container": "#5e2600",
+                    "inverse-primary": "#ffb68f",
+                    "primary-container": "#df8b5c",
+                    "on-secondary": "#ffffff",
+                    "primary-fixed": "#ffdbca",
+                    "primary": "#914c22",
+                    "outline": "#86736a"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-padding-desktop": "40px",
+                    "stack-lg": "48px",
+                    "stack-sm": "12px",
+                    "base": "8px",
+                    "gutter": "16px",
+                    "container-padding-mobile": "20px",
+                    "stack-md": "24px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .sos-pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 30px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .countdown-circle {
+            transition: stroke-dashoffset 1s linear;
+        }
+        body {
+            background-color: #fff8f6;
+            color: #211a16;
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            background: rgba(255, 248, 246, 0.8);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="min-h-screen pb-32">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-40 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm flex items-center justify-between px-container-padding-mobile h-16">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary font-headline-md text-headline-md" style="font-variation-settings: 'FILL' 1;">security</span>
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">SafeTours</span>
+</div>
+<div class="w-10 h-10 rounded-full overflow-hidden border border-primary-container">
+<img class="w-full h-full object-cover" data-alt="A professional close-up profile portrait of a confident woman in her 30s with a warm smile, Alex Morgan. The lighting is soft and studio-quality, highlighting a premium and safe brand aesthetic. The background is a clean, minimalist cream tone that perfectly matches the app's sophisticated and trustworthy calm authority visual identity." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDslgIKkRHuZLvOyZbsjoOhi2xbJVLmMY8B6c3i-4B4UW3XBPFmvEn6JVsBqaPIqR0FYTa9xV9wOXpPH3GweBo7bqtpViQx2ttgmBfZI9NtIN2QEIwsouBD0HaeKBz6ZkJ8LvB_2nQfjOPl5XLqEle6NDs0o5k1L-WnwgyKm0ZfBe4dkXGGu6ysXc1swXwoylqs-ryIar7kbRei_WMLmFjf33PqvrPcK5DgvafAgwrwOMcuAQDvAf3MPqD4jdDukhElbPaXhOt_dcAc">
+</div>
+</header>
+<main class="max-w-md mx-auto px-container-padding-mobile pt-stack-md space-y-gutter">
+<!-- Emergency Header -->
+<section class="bg-error-container text-on-error-container p-gutter rounded-xl flex items-center gap-4 border-l-4 border-error">
+<span class="material-symbols-outlined text-error text-3xl animate-pulse" style="font-variation-settings: 'FILL' 1;">emergency_home</span>
+<div>
+<h2 class="font-headline-sm text-headline-sm font-bold">SOS Status: Ready</h2>
+<p class="font-label-md text-label-md opacity-80 uppercase tracking-wider">Tap and hold to broadcast</p>
+</div>
+</section>
+<!-- Big SOS Button Area -->
+<section class="flex flex-col items-center justify-center py-stack-lg">
+<button class="sos-pulse w-48 h-48 rounded-full bg-[#EF4444] text-white flex flex-col items-center justify-center transition-all active:scale-95 touch-none shadow-2xl relative" id="sos-btn">
+<span class="material-symbols-outlined text-5xl mb-2" style="font-variation-settings: 'FILL' 1;">sos</span>
+<span class="font-headline-sm text-headline-sm font-extrabold uppercase">Send SOS</span>
+<!-- Background Pulse Rings via CSS -->
+</button>
+<p class="mt-stack-md text-on-surface-variant font-label-md text-center max-w-[200px]">
+                Contacts &amp; local authorities will be notified instantly
+            </p>
+</section>
+<!-- Live Location Card -->
+<section class="bg-surface-container-low rounded-xl p-stack-sm border border-outline-variant/30">
+<div class="flex items-center justify-between mb-3 px-2">
+<span class="font-label-lg text-label-lg font-bold text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-lg">my_location</span>
+                    Live Location
+                </span>
+<span class="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full font-label-md text-label-md">Active</span>
+</div>
+<div class="bg-white rounded-lg p-3 space-y-2 shadow-sm">
+<div class="flex justify-between border-b border-outline-variant/20 pb-2">
+<span class="text-on-surface-variant font-label-md">Coordinates</span>
+<span class="font-body-md text-body-md font-mono">40.7128° N, 74.0060° W</span>
+</div>
+<div class="flex justify-between pt-1">
+<span class="text-on-surface-variant font-label-md">Zone ID</span>
+<span class="font-body-md text-body-md font-bold">NY-MAN-0024</span>
+</div>
+</div><button class="mt-3 w-full flex items-center justify-center gap-2 py-3 border-2 border-tertiary text-tertiary font-label-lg text-label-lg rounded-xl hover:bg-tertiary/5 transition-colors active:scale-95" onclick="document.getElementById('share-sheet').classList.remove('hidden')" style="opacity: 0;">
+  <span class="material-symbols-outlined text-lg">share</span>
+  Share Live Location
+</button>
+</section>
+<!-- Shadow Mode Card -->
+<section class="bg-surface-container-high rounded-[24px] p-gutter border border-outline-variant/30 space-y-stack-sm relative overflow-hidden">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">visibility_off</span>
+<h3 class="font-headline-sm text-headline-sm">Shadow Mode</h3>
+</div>
+<p class="text-on-surface-variant font-body-md mb-4">Enable enhanced monitoring for your route. We'll check in if you stop or detour.</p>
+<div class="space-y-3">
+<div class="relative">
+<label class="absolute -top-2 left-3 bg-surface-container-high px-1 text-on-surface-variant text-[10px] uppercase font-bold tracking-widest">Destination</label>
+<input class="w-full bg-white border border-outline-variant/50 rounded-xl px-4 py-3 font-body-md focus:ring-2 focus:ring-primary outline-none" placeholder="Central Park South Entrance" type="text">
+</div>
+<div class="flex gap-3">
+<div class="flex-1 bg-white border border-outline-variant/50 rounded-xl px-4 py-3">
+<span class="block text-on-surface-variant text-[10px] uppercase font-bold tracking-widest mb-1">ETA</span>
+<span class="font-headline-sm text-headline-sm">14 mins</span>
+</div>
+<button class="bg-secondary text-white font-label-lg text-label-lg px-6 rounded-xl hover:bg-secondary/90 transition-colors">
+                        Start Monitoring
+                    </button>
+</div>
+</div>
+</section>
+<!-- SOS Timeline -->
+<section class="py-stack-md">
+<h4 class="font-label-lg text-label-lg text-on-surface-variant uppercase tracking-widest mb-gutter px-2">Session Timeline</h4>
+<div class="relative pl-8 space-y-stack-md before:content-[''] before:absolute before:left-3 before:top-2 before:bottom-2 before:w-[2px] before:bg-outline-variant/30">
+<!-- Event 1 -->
+<div class="relative">
+<div class="absolute -left-8 w-6 h-6 rounded-full bg-tertiary-container flex items-center justify-center z-10 border-4 border-surface">
+<span class="material-symbols-outlined text-[12px] text-on-tertiary-container" style="font-variation-settings: 'FILL' 1;">check</span>
+</div>
+<div class="flex flex-col">
+<span class="font-label-lg text-label-lg font-bold">Location Captured</span>
+<span class="font-label-md text-label-md text-on-surface-variant">2 minutes ago</span>
+</div>
+</div>
+<!-- Event 2 -->
+<div class="relative">
+<div class="absolute -left-8 w-6 h-6 rounded-full bg-surface-container-highest flex items-center justify-center z-10 border-4 border-surface">
+<div class="w-1.5 h-1.5 rounded-full bg-outline"></div>
+</div>
+<div class="flex flex-col opacity-50">
+<span class="font-label-lg text-label-lg font-bold">Shadow Mode Initialized</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Waiting for destination...</span>
+</div>
+</div>
+<!-- Event 3 -->
+<div class="relative">
+<div class="absolute -left-8 w-6 h-6 rounded-full bg-surface-container-highest flex items-center justify-center z-10 border-4 border-surface">
+<div class="w-1.5 h-1.5 rounded-full bg-outline"></div>
+</div>
+<div class="flex flex-col opacity-50">
+<span class="font-label-lg text-label-lg font-bold">Contacts Notified</span>
+<span class="font-label-md text-label-md text-on-surface-variant">Will trigger on SOS</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Cancel Area -->
+<section class="pt-stack-md">
+<button class="w-full py-4 border-2 border-outline-variant text-on-surface-variant font-label-lg text-label-lg rounded-full hover:bg-surface-variant transition-all active:scale-95">
+                CANCEL EMERGENCY ACTION
+            </button>
+</section>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 dark:bg-surface-container-lowest/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)] flex justify-around items-center px-4 pt-3 pb-6">
+<a class="flex flex-col items-center justify-center text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md">Map</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+<span class="font-label-md text-label-md">SOS</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md">Assistant</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</nav>
+<!-- "Are You Safe?" Modal (Conditional Popup) -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm" id="safety-modal">
+<div class="w-full max-w-sm glass-panel rounded-[32px] p-8 text-center space-y-stack-md shadow-2xl border border-white/40">
+<div class="relative w-32 h-32 mx-auto">
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-container-highest" cx="64" cy="64" fill="transparent" r="58" stroke="currentColor" stroke-width="8"></circle>
+<circle class="countdown-circle" cx="64" cy="64" fill="transparent" id="countdown-circle" r="58" stroke="#DF8B5C" stroke-dasharray="364.42" stroke-dashoffset="0" stroke-width="8" style="stroke-dashoffset: 364.42;"></circle>
+</svg>
+<div class="absolute inset-0 flex items-center justify-center">
+<span class="text-3xl font-extrabold text-primary" id="countdown-timer">0</span>
+</div>
+</div>
+<div class="space-y-2">
+<h3 class="font-headline-md text-headline-md font-bold">Are You Safe?</h3>
+<p class="text-on-surface-variant font-body-md">We noticed you stopped moving for a while. Please confirm your status.</p>
+</div>
+<div class="flex flex-col gap-3 pt-4">
+<button class="w-full py-4 bg-tertiary text-white font-headline-sm text-headline-sm rounded-full shadow-lg active:scale-95 transition-transform" onclick="closeModal()">
+                    YES, I'M SAFE
+                </button>
+<button class="w-full py-4 bg-error text-white font-headline-sm text-headline-sm rounded-full shadow-lg active:scale-95 transition-transform">
+                    EMERGENCY
+                </button>
+</div>
+</div>
+</div>
+<script>
+        // Trigger modal after 3 seconds for demonstration
+        setTimeout(() => {
+            const modal = document.getElementById('safety-modal');
+            modal.classList.remove('hidden');
+            startCountdown();
+        }, 3000);
+
+        let countdown = 60;
+        const timerElement = document.getElementById('countdown-timer');
+        const circleElement = document.getElementById('countdown-circle');
+        const totalOffset = 364.42; // Circumference of circle with r=58
+
+        function startCountdown() {
+            const interval = setInterval(() => {
+                countdown--;
+                timerElement.innerText = countdown;
+                
+                // Update circle stroke
+                const offset = totalOffset - (countdown / 60) * totalOffset;
+                circleElement.style.strokeDashoffset = offset;
+
+                if (countdown <= 0) {
+                    clearInterval(interval);
+                    // Handle emergency trigger
+                }
+            }, 1000);
+        }
+
+        function closeModal() {
+            document.getElementById('safety-modal').classList.add('hidden');
+        }
+
+        // SOS Button Long Press Interaction
+        const sosBtn = document.getElementById('sos-btn');
+        let pressTimer;
+
+        sosBtn.addEventListener('pointerdown', () => {
+            sosBtn.classList.add('scale-110', 'brightness-110');
+            pressTimer = setTimeout(() => {
+                alert('SOS SENT TO CONTACTS AND AUTHORITIES!');
+                sosBtn.classList.remove('scale-110', 'brightness-110');
+            }, 2000); // 2 second hold
+        });
+
+        sosBtn.addEventListener('pointerup', () => {
+            clearTimeout(pressTimer);
+            sosBtn.classList.remove('scale-110', 'brightness-110');
+        });
+
+        sosBtn.addEventListener('pointerleave', () => {
+            clearTimeout(pressTimer);
+            sosBtn.classList.remove('scale-110', 'brightness-110');
+        });
+    </script>
+
+
+<!-- Share Confirmation Bottom Sheet -->
+<div class="fixed inset-0 z-[110] hidden flex items-end bg-black/40 backdrop-blur-sm" id="share-sheet">
+  <div class="w-full bg-surface rounded-t-[32px] p-6 pb-10 space-y-6 shadow-2xl border-t border-outline-variant/30">
+    <div class="w-12 h-1.5 bg-outline-variant/50 rounded-full mx-auto mb-2"></div>
+    <div class="space-y-2">
+      <h3 class="font-headline-sm text-headline-sm font-bold">Share Live Location</h3>
+      <p class="text-on-surface-variant font-body-md">Send your current status to your emergency contacts.</p>
+    </div>
+    <div class="bg-surface-container-low rounded-xl p-4 space-y-3">
+      <div class="flex justify-between">
+        <span class="text-on-surface-variant font-label-md uppercase tracking-wider">Coordinates</span>
+        <span class="font-mono text-body-md">40.7128° N, 74.0060° W</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-on-surface-variant font-label-md uppercase tracking-wider">Timestamp</span>
+        <span class="font-body-md">Just now</span>
+      </div>
+    </div>
+    <div class="flex flex-col gap-3">
+      <button class="w-full py-4 bg-tertiary text-white font-headline-sm text-headline-sm rounded-full shadow-lg active:scale-95 transition-transform">
+        SHARE NOW
+      </button>
+      <button class="w-full py-4 border-2 border-outline-variant text-on-surface-variant font-label-lg text-label-lg rounded-full active:scale-95 transition-transform" onclick="document.getElementById('share-sheet').classList.add('hidden')">
+        CANCEL
+      </button>
+    </div>
+  </div>
+</div></body></html>

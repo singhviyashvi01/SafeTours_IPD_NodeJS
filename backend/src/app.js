@@ -18,6 +18,7 @@ const crimeRoutes = require('./modules/crime/crimeRoutes');
 const dangerZoneRoutes = require('./routes/dangerZone.routes');
 const sosRoutes = require('./routes/sosRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const communityRoutes = require('./routes/community.routes');
 
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
@@ -94,6 +95,7 @@ app.use('/api/crowd', crowdRoutes);
 app.use('/api/crime', crimeRoutes);
 
 app.use('/api/danger-zones', dangerZoneRoutes);
+app.use('/api/community', communityRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {

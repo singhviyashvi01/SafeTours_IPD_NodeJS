@@ -1,0 +1,371 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours - Home Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet">
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1); opacity: 0.3; }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+        .animate-pulse-ring {
+            animation: pulse-ring 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .safety-ring {
+            stroke-dasharray: 283;
+            stroke-dashoffset: 42; /* 85% of 283 is ~240, so offset is 42 */
+            transition: stroke-dashoffset 1s ease-out;
+        }
+        body {
+            background-color: #fff8f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#914c22",
+                    "on-primary": "#ffffff",
+                    "on-background": "#211a16",
+                    "secondary-container": "#ff9a66",
+                    "surface": "#fff8f6",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed": "#341100",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#46aeb4",
+                    "tertiary-fixed": "#8ff2f8",
+                    "on-primary-fixed": "#331100",
+                    "on-tertiary-fixed-variant": "#004f53",
+                    "tertiary": "#00696e",
+                    "on-tertiary-fixed": "#002021",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#fdeee7",
+                    "outline-variant": "#d9c2b7",
+                    "inverse-surface": "#372f2b",
+                    "on-primary-fixed-variant": "#73350c",
+                    "surface-container": "#faebe4",
+                    "surface-container-highest": "#eedfd9",
+                    "on-secondary-container": "#763002",
+                    "background": "#fff8f6",
+                    "primary-fixed-dim": "#ffb68f",
+                    "secondary-fixed": "#ffdbcb",
+                    "surface-bright": "#fff8f6",
+                    "surface-dim": "#e6d7d1",
+                    "on-surface-variant": "#54433b",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#ffb692",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed-variant": "#783104",
+                    "surface-container-high": "#f4e5df",
+                    "on-error-container": "#93000a",
+                    "surface-variant": "#eedfd9",
+                    "secondary": "#97481b",
+                    "surface-container-low": "#fff1eb",
+                    "on-tertiary-container": "#003d40",
+                    "on-surface": "#211a16",
+                    "tertiary-fixed-dim": "#72d6dc",
+                    "on-primary-container": "#5e2600",
+                    "inverse-primary": "#ffb68f",
+                    "primary-container": "#df8b5c",
+                    "on-secondary": "#ffffff",
+                    "primary-fixed": "#ffdbca",
+                    "primary": "#914c22",
+                    "outline": "#86736a"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-padding-desktop": "40px",
+                    "stack-lg": "48px",
+                    "stack-sm": "12px",
+                    "base": "8px",
+                    "gutter": "16px",
+                    "container-padding-mobile": "20px",
+                    "stack-md": "24px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface font-body-md antialiased pb-32">
+<!-- Top Navigation Bar -->
+<header class="bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl text-primary dark:text-primary-fixed-dim w-full sticky top-0 z-40 border-b border-outline-variant/30 shadow-sm flex items-center justify-between px-container-padding-mobile h-16">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-2xl">security</span>
+<span class="font-headline-md text-headline-md font-bold text-primary">SafeTours</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center bg-tertiary/10 px-3 py-1 rounded-full border border-tertiary/20">
+<span class="w-2 h-2 rounded-full bg-tertiary mr-2 animate-pulse"></span>
+<span class="text-label-md font-label-md text-tertiary uppercase tracking-wider">Online</span>
+</div>
+<div class="w-10 h-10 rounded-full border-2 border-primary-container overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of Alex Morgan, a friendly man in his early 30s, smiling warmly. He is outdoors in a sun-drenched city plaza with soft-focus architectural details in the background. The lighting is golden-hour warm, reflecting the peach and cream color palette of the UI. The image is crisp, clean, and exudes an air of premium reliability." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA90g2R4l9E5qSnCodCqC3hEDWonR7IPGPhFIsaUwbkRTrwxtkphmOvVXZR2lLCoY32KoD8wd_OmZ745uaB6w3tlYLbQ9zOT9VbBgTQV2YRHAr6BLYEEXPiTpljmIAe0-KFjfefkupkuiV2aWzeNbuJTi_YmWZWIWwovWHlV_nyk7HeRuzqRQtiZdiwUumUey61nUk68JovZ5VevjmkcMYM1xs3luqQdglCRkA6Hk_CTCKva9AVHygwA-fmja3-ALWL8HhtQbNzNU67">
+</div>
+</div>
+</header>
+<main class="px-container-padding-mobile pt-8 space-y-stack-md max-w-2xl mx-auto">
+<!-- Welcome Header -->
+<section class="space-y-1">
+<h1 class="font-headline-lg-mobile text-headline-lg-mobile text-on-background">Good Afternoon, Alex</h1>
+<p class="text-on-surface-variant font-label-lg">Monday, October 24 • Sunny, 72°F</p>
+</section>
+<!-- Safety Score Bento Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Main Score Card -->
+<div class="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-6 shadow-sm flex flex-col items-center justify-center relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-tertiary/5 to-transparent opacity-50"></div>
+<h3 class="text-label-lg font-label-lg text-on-surface-variant mb-6 uppercase tracking-widest">Global Safety Score</h3>
+<div class="relative w-48 h-48 flex items-center justify-center">
+<!-- Progress Ring SVG -->
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-surface-container" cx="96" cy="96" fill="transparent" r="90" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-tertiary safety-ring" cx="96" cy="96" fill="transparent" r="90" stroke="currentColor" stroke-linecap="round" stroke-width="10"></circle>
+</svg>
+<!-- Pulse Effect -->
+<div class="absolute w-40 h-40 rounded-full bg-tertiary/10 animate-pulse-ring"></div>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="font-headline-lg text-headline-lg text-tertiary">85%</span>
+<span class="font-label-md text-tertiary/80 font-bold">OPTIMAL</span>
+</div>
+</div>
+<div class="mt-6 flex items-center gap-2 text-tertiary bg-tertiary/10 px-4 py-2 rounded-full">
+<span class="material-symbols-outlined text-sm">verified_user</span>
+<span class="font-label-lg">Safe to explore</span>
+</div>
+</div>
+<!-- Risk Breakdown Card -->
+<div class="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-6 shadow-sm flex flex-col justify-between">
+<h3 class="text-label-lg font-label-lg text-on-surface-variant mb-4 uppercase tracking-widest">Risk Analysis</h3>
+<div class="space-y-4">
+<!-- Weather Risk -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-label-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-tertiary">cloud</span>
+<span class="text-on-surface">Weather</span>
+</div>
+<span class="text-on-surface-variant">Low Risk</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[15%]"></div>
+</div>
+</div>
+<!-- Crowd Risk -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-label-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-primary-container">groups</span>
+<span class="text-on-surface">Crowd Density</span>
+</div>
+<span class="text-on-surface-variant">Moderate</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary-container w-[45%]"></div>
+</div>
+</div>
+<!-- Time Risk -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-label-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-tertiary">schedule</span>
+<span class="text-on-surface">Time Variance</span>
+</div>
+<span class="text-on-surface-variant">Low Risk</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[10%]"></div>
+</div>
+</div>
+<!-- Location Risk -->
+<div class="space-y-1.5">
+<div class="flex justify-between items-center text-label-md">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-tertiary">location_on</span>
+<span class="text-on-surface">Zone Safety</span>
+</div>
+<span class="text-on-surface-variant">High Security</span>
+</div>
+<div class="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[5%]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Weather & Location Grid -->
+<div class="grid grid-cols-2 gap-gutter">
+<!-- Weather Card -->
+<div class="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-5 shadow-sm space-y-4">
+<div class="flex items-center justify-between">
+<span class="material-symbols-outlined text-primary-container text-3xl">partly_cloudy_day</span>
+<span class="font-headline-sm text-headline-sm">72°</span>
+</div>
+<div class="grid grid-cols-2 gap-3 pt-2 border-t border-outline-variant/20">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase text-on-surface-variant font-bold tracking-tighter">Wind</span>
+<span class="text-label-lg">12mph</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase text-on-surface-variant font-bold tracking-tighter">Humid</span>
+<span class="text-label-lg">45%</span>
+</div>
+</div>
+</div>
+<!-- Location Card -->
+<div class="bg-surface-container-lowest border border-outline-variant/40 rounded-[24px] p-5 shadow-sm space-y-4">
+<div class="flex items-center justify-between">
+<span class="material-symbols-outlined text-tertiary text-3xl">explore</span>
+<div class="text-right">
+<span class="block text-[10px] font-bold text-on-surface-variant">ZONE ID</span>
+<span class="text-label-lg text-tertiary font-bold">A-12</span>
+</div>
+</div>
+<div class="pt-2 border-t border-outline-variant/20">
+<p class="text-[11px] text-on-surface-variant leading-tight">
+                        Lat: 40.7128<br>
+                        Long: -74.0060
+                    </p>
+<div class="mt-1 inline-flex items-center gap-1">
+<span class="w-1.5 h-1.5 bg-tertiary rounded-full"></span>
+<span class="text-[10px] font-bold text-tertiary uppercase">High Safety</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Quick Actions -->
+<section class="space-y-stack-sm pb-8">
+<h3 class="text-label-lg font-label-lg text-on-surface-variant uppercase tracking-widest">Intelligence Suite</h3>
+<div class="grid grid-cols-2 gap-4">
+<!-- Refresh Button -->
+<button class="flex items-center gap-3 p-4 bg-white border border-outline-variant/40 rounded-xl hover:bg-surface-container transition-colors active:scale-95 duration-200 text-left">
+<div class="w-10 h-10 rounded-full bg-primary-container/10 flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined">refresh</span>
+</div>
+<div>
+<span class="block font-label-lg text-on-surface">Refresh</span>
+<span class="text-[10px] text-on-surface-variant uppercase">Sync Data</span>
+</div>
+</button>
+<!-- Map Button -->
+<button class="flex items-center justify-between p-4 bg-white border border-outline-variant/40 rounded-xl hover:bg-surface-container transition-colors active:scale-95 duration-200 text-left w-full" onclick="window.location.href='{{DATA:SCREEN:SCREEN_93}}'"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-tertiary/10 flex items-center justify-center text-tertiary"><span class="material-symbols-outlined">local_hospital</span></div><div><span class="block font-label-lg text-on-surface">Emergency Services</span><span class="text-[10px] text-on-surface-variant uppercase">Nearby Help</span></div></div><span class="material-symbols-outlined text-on-surface-variant">chevron_right</span></button>
+<!-- Shadow Mode -->
+<button class="flex items-center gap-3 p-4 bg-inverse-surface border border-transparent rounded-xl hover:bg-inverse-surface/90 transition-colors active:scale-95 duration-200 text-left">
+<div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white">
+<span class="material-symbols-outlined">visibility_off</span>
+</div>
+<div>
+<span class="block font-label-lg text-inverse-on-surface">Shadow Mode</span>
+<span class="text-[10px] text-white/50 uppercase">Ghost Tracking</span>
+</div>
+</button>
+<!-- Emergency SOS -->
+<button class="flex items-center gap-3 p-4 bg-error text-on-error border border-transparent rounded-xl hover:bg-error/90 transition-colors active:scale-95 duration-200 text-left shadow-lg shadow-error/20">
+<div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency_home</span>
+</div>
+<div>
+<span class="block font-label-lg font-bold">SOS</span>
+<span class="text-[10px] opacity-80 uppercase">Immediate Aid</span>
+</div>
+</button>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 dark:bg-surface-container-lowest/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)]">
+<div class="flex justify-around items-center px-4 pt-3 pb-6 w-full">
+<!-- Home (Active) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="font-label-md text-label-md mt-0.5">Home</span>
+</a>
+<!-- Map -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-3 py-1 transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md mt-0.5">Map</span>
+</a>
+<!-- SOS -->
+<a class="flex flex-col items-center justify-center text-error hover:bg-error/10 px-3 py-1 transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+<span class="font-label-md text-label-md mt-0.5">SOS</span>
+</a>
+<!-- Assistant -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-3 py-1 transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md mt-0.5">Assistant</span>
+</a>
+<!-- Settings -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-3 py-1 transition-all active:scale-90" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md mt-0.5">Settings</span>
+</a>
+</div>
+</nav>
+<script>
+        // Simple Interaction logic
+        document.querySelectorAll('button, a').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (el.textContent.includes('SOS')) {
+                    const confirmSOS = confirm('Activate Emergency SOS? This will alert your emergency contacts and local authorities.');
+                    if (confirmSOS) {
+                        alert('SOS Alert Dispatched. Stay calm, help is on the way.');
+                    }
+                }
+            });
+        });
+
+        // Dynamic Greeting based on time
+        const hour = new Date().getHours();
+        const welcomeH1 = document.querySelector('h1');
+        if (hour >= 12 && hour < 17) welcomeH1.textContent = "Good Afternoon, Alex";
+        else if (hour >= 17) welcomeH1.textContent = "Good Evening, Alex";
+    </script>
+
+
+</body></html>

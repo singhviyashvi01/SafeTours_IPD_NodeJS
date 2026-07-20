@@ -1,0 +1,303 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours - Safety Map</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#914c22",
+                    "on-primary": "#ffffff",
+                    "on-background": "#211a16",
+                    "secondary-container": "#ff9a66",
+                    "surface": "#fff8f6",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed": "#341100",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#46aeb4",
+                    "tertiary-fixed": "#8ff2f8",
+                    "on-primary-fixed": "#331100",
+                    "on-tertiary-fixed-variant": "#004f53",
+                    "tertiary": "#00696e",
+                    "on-tertiary-fixed": "#002021",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#fdeee7",
+                    "outline-variant": "#d9c2b7",
+                    "inverse-surface": "#372f2b",
+                    "on-primary-fixed-variant": "#73350c",
+                    "surface-container": "#faebe4",
+                    "surface-container-highest": "#eedfd9",
+                    "on-secondary-container": "#763002",
+                    "background": "#fff8f6",
+                    "primary-fixed-dim": "#ffb68f",
+                    "secondary-fixed": "#ffdbcb",
+                    "surface-bright": "#fff8f6",
+                    "surface-dim": "#e6d7d1",
+                    "on-surface-variant": "#54433b",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#ffb692",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed-variant": "#783104",
+                    "surface-container-high": "#f4e5df",
+                    "on-error-container": "#93000a",
+                    "surface-variant": "#eedfd9",
+                    "secondary": "#97481b",
+                    "surface-container-low": "#fff1eb",
+                    "on-tertiary-container": "#003d40",
+                    "on-surface": "#211a16",
+                    "tertiary-fixed-dim": "#72d6dc",
+                    "on-primary-container": "#5e2600",
+                    "inverse-primary": "#ffb68f",
+                    "primary-container": "#df8b5c",
+                    "on-secondary": "#ffffff",
+                    "primary-fixed": "#ffdbca",
+                    "primary": "#914c22",
+                    "outline": "#86736a"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-padding-desktop": "40px",
+                    "stack-lg": "48px",
+                    "stack-sm": "12px",
+                    "base": "8px",
+                    "gutter": "16px",
+                    "container-padding-mobile": "20px",
+                    "stack-md": "24px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .sos-pulse {
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .map-overlay-green { background: radial-gradient(circle, rgba(74, 222, 128, 0.3) 0%, rgba(74, 222, 128, 0) 70%); }
+        .map-overlay-yellow { background: radial-gradient(circle, rgba(250, 204, 21, 0.3) 0%, rgba(250, 204, 21, 0) 70%); }
+        .map-overlay-red { background: radial-gradient(circle, rgba(239, 68, 68, 0.3) 0%, rgba(239, 68, 68, 0) 70%); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col overflow-hidden">
+<!-- Top AppBar (from JSON) -->
+<header class="w-full sticky top-0 z-40 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm flex items-center justify-between px-container-padding-mobile h-16">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed-dim" style="font-size: 24px;">security</span>
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary-fixed-dim">SafeTours</h1>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-container active:scale-95 duration-200">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a female travel safety expert with a friendly smile, warm studio lighting, minimalist peach and cream background, premium editorial photography style, high detail skin texture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAzXsE0aQr78TJIHnbExwYRTEKzcjEZV1CHD7ys4V9A0IhPaBAhU0ukckpi6JwdVFz4idc6Vv8iucfCsvSLepMCcCP5tlEp6zW-ADGgU5RLHhZFAEuguEf_u6WLYZg3fv8Gkxstfntp1AxyfqBGtBNcr8DpaimB9jXTso9a5rOMLCeJtkl8XXNnQcAPPO-8W5FbW871KM1vKiEIKG25An4m0Hq6SkHwtnXNck6lW3zBiOi6VmppAvuiDY2WhLZQqpIO_jMGtcQkf84z">
+</button>
+</div>
+</header>
+<!-- Main Map Canvas -->
+<main class="flex-1 relative w-full overflow-hidden">
+<!-- Background Map Image -->
+<div class="absolute inset-0 z-0 bg-surface-container-low" data-alt="A high-quality architectural satellite view of Plaza Mayor in Madrid, Spain. The map has a clean, minimalist urban aesthetic with soft cream-toned buildings, terracotta roofs, and lush green park areas. The lighting is bright and sunny, emphasizing safety and clarity. The overall style is premium and cartographic." data-location="Madrid, Spain" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBnpVhnt0jRqpSAEVG-Kc-4TiwEVR1xN5iHD6scdTFc6VHBdmu4tTim-GOWU5S9j33tT2mDXHsCmFaXBIPoxmrso4n_kMhp156lIXUPPgPszlv01CXqoUmandwnuFeag9eEoewbmliFtxZciNnh1Z_n8NVrV0nhMjlCNKDpeltOi1KU7Kfsw3yyeTsjqTOaxcfGEQamJbAqL3sqc8378-fh0u7V0jOxmiRKD3RTDfN_jt-6ME_eRWKNDs2lyUPqdTaKp6Y7YMx2OmnV')">
+<!-- Risk Zone Overlays -->
+<div class="absolute top-[30%] left-[20%] w-64 h-64 rounded-full map-overlay-green animate-pulse"></div>
+<div class="absolute top-[50%] right-[10%] w-80 h-80 rounded-full map-overlay-yellow"></div>
+<div class="absolute bottom-[20%] left-[40%] w-56 h-56 rounded-full map-overlay-red"></div>
+<!-- User Location Marker -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center">
+<div class="w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center p-1 border-2 border-primary">
+<div class="w-full h-full bg-primary rounded-full animate-ping opacity-75"></div>
+</div>
+<div class="bg-surface-container-high px-3 py-1 rounded-full shadow-sm border border-outline-variant mt-2 glass-panel">
+<span class="font-label-lg text-label-lg text-primary">You are here</span>
+</div>
+</div>
+</div>
+<!-- Floating Controls -->
+<div class="absolute left-4 top-4 z-20 flex gap-2">
+  <div class="flex items-center gap-1.5 bg-surface/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/30 shadow-sm">
+    <span class="material-symbols-outlined text-[18px] text-green-700">offline_pin</span>
+    <span class="font-label-md text-label-md text-on-surface">Offline</span>
+  </div>
+  <div class="flex items-center gap-1.5 bg-surface/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-outline-variant/30 shadow-sm">
+    <span class="material-symbols-outlined text-[18px] text-green-700">signal_cellular_alt</span>
+    <span class="font-label-md text-label-md text-on-surface">Strong</span>
+  </div>
+</div><div class="absolute right-4 top-4 z-20 flex flex-col gap-3">
+<button class="w-12 h-12 bg-surface rounded-xl shadow-lg border border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all active:scale-90">
+<span class="material-symbols-outlined">my_location</span>
+</button>
+<button class="w-12 h-12 bg-surface rounded-xl shadow-lg border border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all active:scale-90">
+<span class="material-symbols-outlined">refresh</span>
+</button>
+<button class="w-12 h-12 bg-surface rounded-xl shadow-lg border border-outline-variant/30 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-all active:scale-90">
+<span class="material-symbols-outlined">layers</span>
+</button>
+<div class="mt-4 bg-surface/90 backdrop-blur-md p-3 rounded-2xl border border-outline-variant/30 shadow-lg flex flex-col gap-2">
+  <p class="font-label-md text-label-md text-on-surface-variant uppercase tracking-tighter mb-1">Risk Legend</p>
+  <div class="flex items-center gap-2">
+    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+    <span class="font-label-md text-label-md">Safe</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+    <span class="font-label-md text-label-md">Caution</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="w-3 h-3 rounded-full bg-orange-500"></div>
+    <span class="font-label-md text-label-md">Moderate</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <div class="w-3 h-3 rounded-full bg-error"></div>
+    <span class="font-label-md text-label-md">High</span>
+  </div>
+</div></div>
+<!-- Persistent SOS FAB -->
+<button class="fixed bottom-32 right-6 z-30 w-16 h-16 bg-error text-on-error rounded-full shadow-2xl flex items-center justify-center sos-pulse active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-[32px]" style="font-variation-settings: 'FILL' 1;">emergency</span>
+</button>
+<!-- Bottom Sheet (Partially Expanded) -->
+<div class="absolute bottom-0 left-0 right-0 z-40 bg-surface/90 glass-panel rounded-t-[32px] border-t border-outline-variant/20 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] transition-transform duration-500 transform translate-y-0 max-w-2xl mx-auto bg-gradient-to-b from-surface/95 to-surface">
+<div class="flex flex-col items-center pt-3 pb-8 px-6">
+<!-- Handle -->
+<div class="w-12 h-1.5 bg-outline-variant/40 rounded-full mb-6"></div>
+<div class="w-full flex justify-between items-start">
+<div class="flex flex-col gap-1">
+<span class="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider">Current Zone</span>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Plaza Mayor</h2>
+</div>
+<div class="flex items-center gap-2 bg-tertiary/10 text-tertiary px-4 py-2 rounded-full border border-tertiary/20">
+<span class="material-symbols-outlined text-[20px]">cloud</span>
+<span class="font-label-lg text-label-lg">24°C Sunny</span>
+</div>
+</div>
+<div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+<!-- Safety Status Card -->
+<div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10 flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-700">
+<span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant">Risk Level</p>
+<p class="font-headline-sm text-headline-sm font-bold text-green-700">Low</p>
+</div>
+</div>
+<!-- Safety Metrics -->
+<div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10 flex items-center gap-4">
+<div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center text-green-700">
+  <span class="material-symbols-outlined text-[28px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+</div>
+<div>
+<p class="font-label-md text-label-md text-on-surface-variant">Patrol Frequency</p>
+<p class="font-headline-sm text-headline-sm font-bold text-green-700">High</p>
+</div>
+</div>
+</div>
+<div class="w-full flex gap-3 mt-6">
+<button class="flex-1 h-12 bg-primary text-on-primary rounded-full font-label-lg text-label-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined">navigation</span>
+                        Route Home
+                    </button>
+<button class="flex-1 h-12 bg-surface-container-high text-primary border border-primary/20 rounded-full font-label-lg text-label-lg flex items-center justify-center gap-2 hover:bg-surface-container-highest active:scale-95 transition-all">
+<span class="material-symbols-outlined">share_location</span>
+                        Share Location
+                    </button>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar (from JSON) -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 dark:bg-surface-container-lowest/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)] flex justify-around items-center px-4 pt-3 pb-6">
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+<span class="font-label-md text-label-md">Map</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="emergency">emergency</span>
+<span class="font-label-md text-label-md">SOS</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="support_agent">support_agent</span>
+<span class="font-label-md text-label-md">Assistant</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-colors" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</nav>
+<script>
+        // Simple micro-interaction for the bottom sheet
+        let isExpanded = false;
+        const sheet = document.querySelector('.bottom-0.left-0.right-0');
+        const handle = sheet.querySelector('.bg-outline-variant\\/40');
+
+        handle.addEventListener('click', () => {
+            if (isExpanded) {
+                sheet.style.transform = 'translateY(0)';
+            } else {
+                sheet.style.transform = 'translateY(-20px)';
+            }
+            isExpanded = !isExpanded;
+        });
+
+        // Soft tap feedback for buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                this.classList.add('scale-95');
+                setTimeout(() => this.classList.remove('scale-95'), 100);
+            });
+        });
+    </script>
+
+
+</body></html>
