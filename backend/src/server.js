@@ -18,6 +18,10 @@ const startServer = async () => {
 
     console.log("5. MongoDB connected");
 
+    // Start community incident expiry scheduler background job
+    const { startExpiryScheduler } = require('./scheduler/communityExpiryJob');
+    startExpiryScheduler();
+
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
