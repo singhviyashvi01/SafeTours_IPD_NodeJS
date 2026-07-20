@@ -1,0 +1,317 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours AI Assistant</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#914c22",
+                        "on-primary": "#ffffff",
+                        "on-background": "#211a16",
+                        "secondary-container": "#ff9a66",
+                        "surface": "#fff8f6",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed": "#341100",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-container": "#46aeb4",
+                        "tertiary-fixed": "#8ff2f8",
+                        "on-primary-fixed": "#331100",
+                        "on-tertiary-fixed-variant": "#004f53",
+                        "tertiary": "#00696e",
+                        "on-tertiary-fixed": "#002021",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#fdeee7",
+                        "outline-variant": "#d9c2b7",
+                        "inverse-surface": "#372f2b",
+                        "on-primary-fixed-variant": "#73350c",
+                        "surface-container": "#faebe4",
+                        "surface-container-highest": "#eedfd9",
+                        "on-secondary-container": "#763002",
+                        "background": "#fff8f6",
+                        "primary-fixed-dim": "#ffb68f",
+                        "secondary-fixed": "#ffdbcb",
+                        "surface-bright": "#fff8f6",
+                        "surface-dim": "#e6d7d1",
+                        "on-surface-variant": "#54433b",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed-dim": "#ffb692",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "surface-variant": "#eedfd9",
+                        "secondary": "#97481b",
+                        "surface-container-low": "#fff1eb",
+                        "on-tertiary-container": "#003d40",
+                        "on-surface": "#211a16",
+                        "tertiary-fixed-dim": "#72d6dc",
+                        "on-primary-container": "#5e2600",
+                        "inverse-primary": "#ffb68f",
+                        "primary-container": "#df8b5c",
+                        "on-secondary": "#ffffff",
+                        "primary-fixed": "#ffdbca",
+                        "primary": "#914c22",
+                        "outline": "#86736a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding-desktop": "40px",
+                        "stack-lg": "48px",
+                        "stack-sm": "12px",
+                        "base": "8px",
+                        "gutter": "16px",
+                        "container-padding-mobile": "20px",
+                        "stack-md": "24px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .chat-bubble-ai {
+            border-bottom-left-radius: 4px;
+        }
+        .chat-bubble-user {
+            border-bottom-right-radius: 4px;
+        }
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #E7D6CC;
+            border-radius: 10px;
+        }
+        @keyframes pulse-red {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pulse-red {
+            animation: pulse-red 2s infinite ease-in-out;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface font-body-md text-on-surface min-h-screen flex flex-col">
+<!-- Top AppBar -->
+<header class="w-full sticky top-0 z-40 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm flex items-center justify-between px-container-padding-mobile h-16">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" data-icon="security">security</span>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SafeTours</h1>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary-container">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a woman named Alex Morgan, smiling warmly against a soft studio background. She is wearing a modern cream-colored blazer. The image has a premium, high-key lighting aesthetic with a shallow depth of field, fitting a safe and trustworthy professional persona in a calm authority-styled UI." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUQ0q9QS4mML83gunI6Q5b8arSy_wmTjAXdmC39a-upwUjpDJS1HEvoE9fxfXh0N994eQ2vMVsEU-sC1RUsyn_dOIv8YATUo_jwuHEm9an6JuJMDsp2rQjaaSDsTxy7x8GXE5w15TnmZeavKpBNQgf0EBXxj3JiGfgB6njQp5zexSBLna01prInQNsei5Tvjs2RCC-1OIL5wYUCsrtyZ0JYidEpridt_DFhv_UFeuXwDkSXRm1SBW3HST6qf5jLE4YK6ETfitnM4hj">
+</div>
+</div>
+</header>
+<!-- Chat Canvas -->
+<main class="flex-1 overflow-y-auto px-container-padding-mobile py-stack-md pb-32 space-y-stack-md" id="chat-canvas">
+<!-- AI Greeting -->
+<div class="flex flex-col gap-2 max-w-[85%]">
+<div class="bg-surface-container-high text-on-surface-variant p-4 rounded-3xl chat-bubble-ai border border-outline-variant/30 glass-panel shadow-sm">
+<p class="font-body-md text-body-md leading-relaxed">
+                    Hello Alex. I'm your AI Safety Assistant. I'm monitoring your current location and the local environment in real-time. How can I help you stay safe today?
+                </p>
+</div>
+<span class="text-label-md font-label-md text-on-surface-variant/60 ml-2">10:24 AM</span>
+</div>
+<!-- Suggestion Chips -->
+<div class="flex flex-wrap gap-2 py-2">
+<button class="bg-surface-container-low hover:bg-surface-container-high transition-colors border border-outline-variant/40 px-4 py-2 rounded-full text-label-lg font-label-lg text-primary flex items-center gap-2 active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[18px]" data-icon="shield">shield</span>
+                Is this area safe?
+            </button>
+<button class="bg-surface-container-low hover:bg-surface-container-high transition-colors border border-outline-variant/40 px-4 py-2 rounded-full text-label-lg font-label-lg text-primary flex items-center gap-2 active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[18px]" data-icon="flight_takeoff">flight_takeoff</span>
+                Should I travel now?
+            </button>
+<button class="bg-surface-container-low hover:bg-surface-container-high transition-colors border border-outline-variant/40 px-4 py-2 rounded-full text-label-lg font-label-lg text-primary flex items-center gap-2 active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[18px]" data-icon="thunderstorm">thunderstorm</span>
+                Weather risk?
+            </button>
+</div>
+<!-- User Message -->
+<div class="flex flex-col items-end gap-2 ml-auto max-w-[85%]">
+<div class="bg-primary text-on-primary p-4 rounded-3xl chat-bubble-user shadow-md">
+<p class="font-body-md text-body-md leading-relaxed">
+                    What's the safety status of my current route? I'm walking towards the harbor district.
+                </p>
+</div>
+<span class="text-label-md font-label-md text-on-surface-variant/60 mr-2">10:25 AM</span>
+</div>
+<!-- Context Card: Map Snapshot -->
+<div class="w-full bg-surface-container-lowest border border-outline-variant rounded-3xl overflow-hidden shadow-sm">
+<div class="h-48 relative">
+<div class="absolute inset-0 bg-cover bg-center" data-alt="A clean, minimalist digital map showing a safe walking route through an urban harbor district. The map features soft pastel tones, cream streets, and a peach-colored path highlighting the user's route. Transparent blue safety zones and small icons for local police and medical stations are visible, maintaining a calm and authoritative visual style." data-location="Harbor District, Oslo" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBTq1uw8OnFNP3shZzEbKZeixDXyNwjohvwJKPHr12N3ay6wxuTDC8UqnmF3W12GJ0UetKw-zT2Ji0UEblr3W5zq-cPne2eiOk84P3b-oC5IGwP323VJUv18VqOHsDfD7_dlFR5j7zwQ35QFkQWdcM9yogCOKrmtZkZ6rOTCN6hjA50u99iZt9F7gv_WgP6iC4kVSQOna3zNgdRTYL01k-tWT-8Kgjaui36qkjpCW-HJk9rlLjKBwLaBUcfcUfT5Nq5SISkRX_jCD0f')"></div>
+<div class="absolute top-4 left-4 flex gap-2">
+<span class="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full text-label-md font-label-md flex items-center gap-1 shadow-sm">
+<span class="material-symbols-outlined text-[14px]" data-icon="verified_user">verified_user</span>
+                        Safe Route
+                    </span>
+</div>
+</div>
+<div class="p-4 flex justify-between items-center bg-surface-container-low">
+<div>
+<h4 class="font-label-lg text-label-lg text-on-surface">Route to Harbor District</h4>
+<p class="text-label-md font-label-md text-on-surface-variant">2.4 km • 28 mins walking</p>
+</div>
+<span class="material-symbols-outlined text-primary" data-icon="directions_walk">directions_walk</span>
+</div>
+</div>
+<!-- AI Response with Advice Card -->
+<div class="flex flex-col gap-4 max-w-[90%]">
+<div class="bg-surface-container-high text-on-surface-variant p-4 rounded-3xl chat-bubble-ai border border-outline-variant/30 glass-panel shadow-sm">
+<p class="font-body-md text-body-md leading-relaxed">
+                    Based on current data, your route is mostly safe. However, there is a minor localized alert for the next 2 blocks.
+                </p>
+</div>
+<!-- Advice Card -->
+<div class="bg-error-container/30 border-l-4 border-error rounded-xl p-4 space-y-3">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+<h3 class="font-label-lg text-label-lg text-on-error-container">Safety Alert: High Traffic Area</h3>
+</div>
+<p class="text-body-md font-body-md text-on-surface-variant">
+                    Construction on Aker Brygge has caused crowded sidewalks. Stay alert for pickpockets in this high-density zone.
+                </p>
+<div class="flex gap-2">
+<button class="bg-white/80 border border-outline-variant/50 px-3 py-1.5 rounded-full text-label-md font-label-md text-primary flex items-center gap-1 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[16px]" data-icon="alt_route">alt_route</span>
+                        Find detour
+                    </button>
+<button class="bg-white/80 border border-outline-variant/50 px-3 py-1.5 rounded-full text-label-md font-label-md text-primary flex items-center gap-1 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[16px]" data-icon="share">share</span>
+                        Share route
+                    </button>
+</div>
+</div>
+</div>
+<!-- Weather Snapshot Card -->
+<div class="bg-surface-container-high rounded-3xl p-5 border border-outline-variant/30 flex items-center gap-4 max-w-[85%]">
+<div class="w-16 h-16 bg-tertiary-fixed rounded-2xl flex items-center justify-center text-on-tertiary-fixed shadow-sm">
+<span class="material-symbols-outlined text-[32px]" data-icon="cloud_done">cloud_done</span>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start">
+<h4 class="font-label-lg text-label-lg text-on-surface">Weather Forecast</h4>
+<span class="text-headline-sm font-headline-sm text-primary">12°C</span>
+</div>
+<p class="text-label-md font-label-md text-on-surface-variant">No rain expected for the next 3 hours. Visibility is excellent.</p>
+</div>
+</div>
+</main>
+<!-- Chat Input Area -->
+<div class="fixed bottom-0 w-full z-40 bg-surface/80 backdrop-blur-xl border-t border-outline-variant/20 pt-4 pb-8 px-container-padding-mobile">
+<div class="max-w-screen-md mx-auto relative group">
+<!-- Voice/Mic Button Inside -->
+<button class="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-primary hover:bg-surface-container-high rounded-full transition-colors active:scale-90 duration-200">
+<span class="material-symbols-outlined" data-icon="mic">mic</span>
+</button>
+<input class="w-full pl-14 pr-16 py-4 bg-surface-container-low border border-outline-variant/40 rounded-full focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-body-md text-body-md text-on-surface placeholder:text-on-surface-variant/50 shadow-inner" placeholder="Ask about safety, weather, or routes..." type="text">
+<!-- Send Button -->
+<button class="absolute right-2 top-1/2 -translate-y-1/2 bg-primary text-on-primary w-11 h-11 rounded-full flex items-center justify-center shadow-md hover:bg-surface-tint active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="send">send</span>
+</button>
+</div>
+</div>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 dark:bg-surface-container-lowest/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)] hidden md:flex">
+<!-- This is hidden on mobile screens as per the platform layout anchor, but usually represented here for completeness if required by prompt -->
+</nav>
+<!-- Mobile Bottom NavBar (Simulated based on JSON) -->
+<div class="fixed bottom-0 w-full z-50 bg-surface/90 backdrop-blur-md flex justify-around items-center px-4 pt-3 pb-6 border-t border-outline-variant/10 md:hidden pointer-events-none opacity-0">
+<!-- The real navigation shell is usually handled by the main app structure, 
+             but we show the Assistant as active here for contextual state -->
+</div>
+<!-- Bottom Navigation Component from JSON -->
+<div class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)] flex justify-around items-center px-4 pt-3 pb-6">
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-all active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-all active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined" data-icon="map">map</span>
+<span class="font-label-md text-label-md">Map</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-all active:scale-90 duration-200 touch-none">
+<div class="w-12 h-12 rounded-full bg-error flex items-center justify-center text-white mb-1 shadow-lg animate-pulse-red">
+<span class="material-symbols-outlined" data-icon="emergency">emergency</span>
+</div>
+<span class="font-label-md text-label-md text-error font-bold">SOS</span>
+</div>
+<div class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined" data-icon="support_agent">support_agent</span>
+<span class="font-label-md text-label-md">Assistant</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 transition-all active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</div>
+</div>
+<!-- Background Atmospheric Effect (Shader Placeholder Logic) -->
+<div class="fixed inset-0 -z-10 pointer-events-none opacity-20 overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-tr from-surface via-surface-container to-surface-container-low"></div>
+<div class="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] bg-primary-container/20 rounded-full blur-[120px]"></div>
+<div class="absolute -bottom-[20%] -right-[10%] w-[60%] h-[60%] bg-tertiary-container/10 rounded-full blur-[120px]"></div>
+</div>
+<script>
+        // Simple Interaction logic
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Visual feedback only for this prototype
+                console.log('Button clicked:', btn.innerText.trim());
+            });
+        });
+
+        // Autoscroll to bottom on load
+        window.onload = () => {
+            const canvas = document.getElementById('chat-canvas');
+            canvas.scrollTop = canvas.scrollHeight;
+        };
+    </script>
+</body></html>

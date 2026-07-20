@@ -1,0 +1,350 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours | Notifications &amp; History</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "secondary": "#97481b",
+                "outline-variant": "#d9c2b7",
+                "tertiary-fixed": "#8ff2f8",
+                "surface-container": "#faebe4",
+                "inverse-on-surface": "#fdeee7",
+                "on-surface": "#211a16",
+                "on-error": "#ffffff",
+                "surface-tint": "#914c22",
+                "on-primary": "#ffffff",
+                "inverse-surface": "#372f2b",
+                "surface-variant": "#eedfd9",
+                "secondary-fixed-dim": "#ffb692",
+                "on-secondary-fixed-variant": "#783104",
+                "background": "#fff8f6",
+                "surface-container-high": "#f4e5df",
+                "on-tertiary-fixed-variant": "#004f53",
+                "primary-fixed-dim": "#ffb68f",
+                "on-tertiary-fixed": "#002021",
+                "tertiary-container": "#46aeb4",
+                "on-primary-fixed": "#331100",
+                "primary-fixed": "#ffdbca",
+                "primary": "#914c22",
+                "outline": "#86736a",
+                "on-background": "#211a16",
+                "surface-dim": "#e6d7d1",
+                "on-tertiary-container": "#003d40",
+                "tertiary-fixed-dim": "#72d6dc",
+                "surface-container-highest": "#eedfd9",
+                "on-secondary-fixed": "#341100",
+                "on-primary-fixed-variant": "#73350c",
+                "on-primary-container": "#5e2600",
+                "primary-container": "#df8b5c",
+                "tertiary": "#00696e",
+                "error": "#ba1a1a",
+                "secondary-container": "#ff9a66",
+                "on-secondary-container": "#763002",
+                "on-tertiary": "#ffffff",
+                "on-error-container": "#93000a",
+                "surface-container-lowest": "#ffffff",
+                "on-surface-variant": "#54433b",
+                "surface-bright": "#fff8f6",
+                "inverse-primary": "#ffb68f",
+                "surface": "#fff8f6",
+                "surface-container-low": "#fff1eb",
+                "error-container": "#ffdad6",
+                "on-secondary": "#ffffff",
+                "secondary-fixed": "#ffdbcb"
+            },
+            "spacing": {
+                "container-padding-desktop": "40px",
+                "container-padding-mobile": "20px",
+                "gutter": "16px",
+                "base": "8px",
+                "stack-sm": "12px",
+                "stack-md": "24px",
+                "stack-lg": "48px"
+            },
+            "fontFamily": {
+                "headline-lg-mobile": ["Inter"],
+                "body-md": ["Inter"],
+                "headline-sm": ["Inter"],
+                "label-lg": ["Inter"],
+                "headline-lg": ["Inter"],
+                "label-md": ["Inter"],
+                "headline-md": ["Inter"],
+                "body-lg": ["Inter"]
+            },
+            "fontSize": {
+                "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .glass-header {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .ios-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .timeline-line::before {
+            content: '';
+            position: absolute;
+            left: 20px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: #E7D6CC;
+            z-index: 0;
+        }
+        .pulse-red {
+            animation: pulse-red 2s infinite;
+        }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(186, 26, 26, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(186, 26, 26, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(186, 26, 26, 0); }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen">
+<!-- Top App Bar -->
+<header class="w-full sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm">
+<div class="flex items-center justify-between px-container-padding-mobile h-16 max-w-[1200px] mx-auto">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary font-bold">security</span>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SafeTours</h1>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant p-2 hover:bg-surface-container-high transition-colors rounded-full">search</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant/50">
+<img class="w-full h-full object-cover" data-alt="A professional close-up portrait of Alex Morgan, a tech-savvy traveler with a friendly expression. The lighting is soft and warm, complementing the peach and cream tones of the SafeTours brand. The background is a blurred, high-end airport terminal with a minimalist aesthetic, emphasizing a clean and premium travel experience." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQb0f6ZUn9db7ppppeAdO8GfyD_otUQnLEqS0-bfIKBs4_jcD7Sttr10Z-XRlOorq0VMUzhT4aLmRY0r3ZlAa3L3U5KVoWbVUvNyiBF4RUGl2drV-qPIx3SoPqYxRX5M5a34l4LUBMKQOI-HOjPutbtI2Eh8IyWPWDKCXciuPTYxc4f9diDStGJS-FCR1IzrcD6yQio-kAOA9Tbb_aj4MruvqLB9Jop1kXlEWBxqVZyEDQyispwXnXoh4CkCGoH9qErVITWI-0kSYN">
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-[1200px] mx-auto pb-32">
+<!-- Title & Filters Section -->
+<section class="px-container-padding-mobile py-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile md:font-headline-lg md:text-headline-lg text-on-surface">Notifications &amp; History</h2>
+<p class="text-on-surface-variant mt-1">Review your safety logs and recent activity.</p>
+</div>
+<!-- Horizontal Filter Chips -->
+<div class="flex gap-2 overflow-x-auto ios-scrollbar pb-1">
+<button class="px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container font-label-lg text-label-lg whitespace-nowrap transition-all shadow-sm" onclick="selectFilter(this)">Today</button>
+<button class="px-4 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap transition-all hover:bg-surface-variant" onclick="selectFilter(this)">This Week</button>
+<button class="px-4 py-1.5 rounded-full bg-surface-container-high text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap transition-all hover:bg-surface-variant" onclick="selectFilter(this)">This Month</button>
+</div>
+</section>
+<!-- Segmented Tabs -->
+<nav class="px-container-padding-mobile mb-6">
+<div class="flex border-b border-outline-variant/30 gap-6 overflow-x-auto ios-scrollbar">
+<button class="pb-3 px-1 border-b-2 border-primary text-primary font-label-lg text-label-lg whitespace-nowrap">All</button>
+<button class="pb-3 px-1 border-b-2 border-transparent text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap hover:text-primary transition-colors">SOS</button>
+<button class="pb-3 px-1 border-b-2 border-transparent text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap hover:text-primary transition-colors">Safety Alerts</button>
+<button class="pb-3 px-1 border-b-2 border-transparent text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap hover:text-primary transition-colors">Weather</button>
+<button class="pb-3 px-1 border-b-2 border-transparent text-on-surface-variant font-label-lg text-label-lg whitespace-nowrap hover:text-primary transition-colors">Shadow Mode</button>
+</div>
+</nav>
+<!-- Timeline Section -->
+<div class="relative px-container-padding-mobile timeline-line space-y-gutter">
+<!-- SOS Card (High Urgency) -->
+<div class="relative z-10 flex gap-4 items-start group">
+<div class="mt-2 w-10 h-10 rounded-full bg-error flex items-center justify-center text-on-error shrink-0 pulse-red ring-4 ring-background">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+</div>
+<div class="flex-1 bg-white border border-outline-variant p-5 rounded-[24px] shadow-sm group-hover:shadow-md transition-all duration-300">
+<div class="flex justify-between items-start mb-3">
+<div>
+<span class="text-error font-label-lg text-label-lg uppercase tracking-wider">SOS Activated</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface mt-1">Emergency SOS Triggered</h3>
+</div>
+<span class="bg-tertiary-container/20 text-on-tertiary-container px-3 py-1 rounded-full font-label-md text-label-md">Resolved</span>
+</div>
+<div class="space-y-2 mb-4">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+<span class="text-label-lg">Oct 24, 2023 • 11:42 PM</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-label-lg">34th Street District, New York City</span>
+</div>
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">group</span>
+<span class="text-label-lg">Contacts Notified: Home Circle (3)</span>
+</div>
+</div>
+<button class="w-full py-2.5 px-4 bg-primary text-on-primary rounded-full font-label-lg text-label-lg transition-transform active:scale-95">View Details</button>
+</div>
+</div>
+<!-- Safety Alert Card -->
+<div class="relative z-10 flex gap-4 items-start group">
+<div class="mt-2 w-10 h-10 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container shrink-0 ring-4 ring-background">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="flex-1 bg-white border border-outline-variant p-5 rounded-[24px] shadow-sm hover:shadow-md transition-all duration-300">
+<div class="flex justify-between items-start mb-3">
+<div>
+<span class="text-secondary font-label-lg text-label-lg">Safety Alert</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface mt-1">Crowd Alert</h3>
+</div>
+<span class="bg-[#FFEDD5] text-[#9A3412] border border-[#FED7AA] px-3 py-1 rounded-full font-label-md text-label-md">Orange Severity</span>
+</div>
+<p class="text-on-surface-variant mb-4 text-body-md">High density activity detected on Broadway. Unusual traffic patterns recorded in the last 15 minutes.</p>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">location_on</span>
+<span class="text-label-lg">Broadway &amp; 42nd St</span>
+</div>
+<button class="text-primary font-label-lg text-label-lg flex items-center gap-1 hover:underline">
+                            View Details <span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Danger Zone Warning (Bento Style) -->
+<div class="relative z-10 flex gap-4 items-start group">
+<div class="mt-2 w-10 h-10 rounded-full bg-error-container flex items-center justify-center text-on-error-container shrink-0 ring-4 ring-background">
+<span class="material-symbols-outlined">gpp_maybe</span>
+</div>
+<div class="flex-1 bg-white border border-outline-variant rounded-[24px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300">
+<div class="p-5">
+<div class="flex justify-between items-center mb-1">
+<span class="text-error font-label-lg text-label-lg">Danger Zone Warning</span>
+<span class="text-on-surface-variant text-label-md">2h ago</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Entered Red Zone</h3>
+</div>
+<div class="h-48 w-full relative">
+<div class="absolute inset-0 bg-cover bg-center" data-alt="A sophisticated map visualization for a safety app. It shows a minimalist dark-themed city map with a clearly defined bright red glowing area labeled as a danger zone. The user's path is marked with a subtle cream-colored line entering the perimeter. The visual style is premium and data-rich, using soft shadows and high contrast for clarity." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCZZr9gw1yFCDl36WKEdqxyTT2n7TgPAmtytu3pDM23azCn1FRXlLjzlaEnAa4tkxk_d7__Fiv4EG1m4jghTNzS_aMrZDLOZAHFbYwarIpvJ6NsihSObHca6botnVbnnnOs6pfboiEReVv5cvsmyybTszjF0_voxEOnC1-wc4U12QyJiEHaxwm236Cpy8KtTSetWXEAvIJzZXYe-HRXX-pbVQvHanVg6iHlNSsLre44DW7wbyWGxxCRvxDV7veaVjc-u7AQZsaraRh7')"></div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent flex items-end p-4">
+<div class="bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-xl flex items-center gap-2">
+<span class="material-symbols-outlined text-error text-[18px]">report</span>
+<span class="font-label-md text-label-md text-on-surface">High crime reports in this area</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Weather Alert Card -->
+<div class="relative z-10 flex gap-4 items-start group">
+<div class="mt-2 w-10 h-10 rounded-full bg-tertiary-container flex items-center justify-center text-on-tertiary-container shrink-0 ring-4 ring-background">
+<span class="material-symbols-outlined">rainy</span>
+</div>
+<div class="flex-1 bg-[#F0FDFB] border border-tertiary-fixed-dim/30 p-5 rounded-[24px] shadow-sm">
+<div class="flex justify-between items-center mb-3">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Rain Alert</h3>
+<span class="text-on-surface-variant text-label-md">Oct 24 • 4:00 PM</span>
+</div>
+<div class="bg-white/60 rounded-xl p-4 border border-tertiary-fixed-dim/20">
+<p class="text-on-surface-variant font-label-lg text-label-lg">Recommended Action:</p>
+<p class="text-tertiary font-headline-sm text-headline-sm">Seek Shelter</p>
+<p class="text-body-md mt-2">Heavy thunderstorms expected within 15 minutes. Visibility will decrease significantly.</p>
+</div>
+</div>
+</div>
+<!-- Shadow Mode History -->
+<div class="relative z-10 flex gap-4 items-start group">
+<div class="mt-2 w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-primary shrink-0 ring-4 ring-background">
+<span class="material-symbols-outlined">visibility</span>
+</div>
+<div class="flex-1 bg-white border border-outline-variant p-5 rounded-[24px] shadow-sm">
+<div class="flex justify-between items-start mb-4">
+<div>
+<span class="text-on-surface-variant font-label-lg text-label-lg">Shadow Mode History</span>
+<h3 class="font-headline-sm text-headline-sm text-on-surface mt-1">Hotel to Central Station</h3>
+</div>
+<div class="flex items-center gap-1 text-[#166534] bg-[#DCFCE7] px-3 py-1 rounded-full">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="font-label-md text-label-md">Safe Arrival</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4 py-3 border-y border-outline-variant/30 mb-4">
+<div>
+<p class="text-label-md text-on-surface-variant uppercase">Date</p>
+<p class="font-label-lg text-label-lg">Oct 23, 2023</p>
+</div>
+<div>
+<p class="text-label-md text-on-surface-variant uppercase">Duration</p>
+<p class="font-label-lg text-label-lg">24 Minutes</p>
+</div>
+</div>
+<button class="w-full py-2.5 px-4 border border-primary text-primary rounded-full font-label-lg text-label-lg hover:bg-primary/5 transition-colors">View Route</button>
+</div>
+</div>
+<!-- Empty State Illustration (Hidden by default, shown for "No recent safety activity") -->
+<div class="hidden flex flex-col items-center justify-center py-20 text-center px-10" id="empty-state">
+<div class="w-32 h-32 mb-6 opacity-40">
+<span class="material-symbols-outlined text-[128px] text-outline">history</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Quiet &amp; Safe</h3>
+<p class="text-on-surface-variant max-w-xs mt-2">There is no recent safety activity to report. Your journeys have been smooth and secure.</p>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)]">
+<div class="flex justify-around items-center px-4 pt-3 pb-6 w-full max-w-[600px] mx-auto">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-4 py-1.5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-4 py-1.5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md">Map</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all shadow-md">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+<span class="font-label-md text-label-md">SOS</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-4 py-1.5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md">Assistant</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 px-4 py-1.5 rounded-full transition-all active:scale-90 duration-200">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</button>
+</div>
+</nav>
+<!-- Micro-interaction Scripts -->
+<script>
+        function selectFilter(btn) {
+            // Reset all filter buttons
+            const buttons = btn.parentElement.querySelectorAll('button');
+            buttons.forEach(b => {
+                b.classList.remove('bg-secondary-container', 'text-on-secondary-container', 'shadow-sm');
+                b.classList.add('bg-surface-container-high', 'text-on-surface-variant');
+            });
+
+            // Set active style for selected button
+            btn.classList.add('bg-secondary-container', 'text-on-secondary-container', 'shadow-sm');
+            btn.classList.remove('bg-surface-container-high', 'text-on-surface-variant');
+        }
+
+        // Example interaction for SOS pulse suppression after clicking
+        const sosButton = document.querySelector('.pulse-red');
+        if(sosButton) {
+            sosButton.parentElement.parentElement.addEventListener('click', () => {
+                sosButton.classList.remove('pulse-red');
+            });
+        }
+    </script>
+</body></html>

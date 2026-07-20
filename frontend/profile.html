@@ -1,0 +1,246 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours - User Setup</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-tint": "#914c22",
+                    "on-primary": "#ffffff",
+                    "on-background": "#211a16",
+                    "secondary-container": "#ff9a66",
+                    "surface": "#fff8f6",
+                    "on-error": "#ffffff",
+                    "on-secondary-fixed": "#341100",
+                    "surface-container-lowest": "#ffffff",
+                    "tertiary-container": "#46aeb4",
+                    "tertiary-fixed": "#8ff2f8",
+                    "on-primary-fixed": "#331100",
+                    "on-tertiary-fixed-variant": "#004f53",
+                    "tertiary": "#00696e",
+                    "on-tertiary-fixed": "#002021",
+                    "on-tertiary": "#ffffff",
+                    "inverse-on-surface": "#fdeee7",
+                    "outline-variant": "#d9c2b7",
+                    "inverse-surface": "#372f2b",
+                    "on-primary-fixed-variant": "#73350c",
+                    "surface-container": "#faebe4",
+                    "surface-container-highest": "#eedfd9",
+                    "on-secondary-container": "#763002",
+                    "background": "#fff8f6",
+                    "primary-fixed-dim": "#ffb68f",
+                    "secondary-fixed": "#ffdbcb",
+                    "surface-bright": "#fff8f6",
+                    "surface-dim": "#e6d7d1",
+                    "on-surface-variant": "#54433b",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#ffb692",
+                    "error": "#ba1a1a",
+                    "on-secondary-fixed-variant": "#783104",
+                    "surface-container-high": "#f4e5df",
+                    "on-error-container": "#93000a",
+                    "surface-variant": "#eedfd9",
+                    "secondary": "#97481b",
+                    "surface-container-low": "#fff1eb",
+                    "on-tertiary-container": "#003d40",
+                    "on-surface": "#211a16",
+                    "tertiary-fixed-dim": "#72d6dc",
+                    "on-primary-container": "#5e2600",
+                    "inverse-primary": "#ffb68f",
+                    "primary-container": "#df8b5c",
+                    "on-secondary": "#ffffff",
+                    "primary-fixed": "#ffdbca",
+                    "primary": "#914c22",
+                    "outline": "#86736a"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "24": "24px",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-padding-desktop": "40px",
+                    "stack-lg": "48px",
+                    "stack-sm": "12px",
+                    "base": "8px",
+                    "gutter": "16px",
+                    "container-padding-mobile": "20px",
+                    "stack-md": "24px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "label-md": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-header {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #E7D6CC;
+            border-radius: 10px;
+        }
+        .animate-float {
+            animation: float 6s ease-in-out infinite;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface min-h-screen font-body-md flex flex-col items-center">
+<!-- TopAppBar -->
+<header class="w-full sticky top-0 z-40 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30 shadow-sm flex items-center justify-between px-container-padding-mobile h-16">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary" data-icon="security">security</span>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">SafeTours</h1>
+</div>
+<div class="w-10 h-10 rounded-full bg-surface-container-high overflow-hidden border border-outline-variant/30 active:scale-95 duration-200 transition-colors hover:bg-surface-container-high">
+<img class="w-full h-full object-cover" data-alt="A warm and inviting portrait of a friendly young traveler with a gentle smile, shot in natural golden hour light. The aesthetic is clean and premium, featuring a soft-focus background of a peaceful European street. The overall tone uses light peach and cream colors to convey a sense of safety and modern minimalism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDhLIeDB9GFZ03HJ2ljLp7m68uqNvW-q5K7O-LHe8NHn9Gz7INMf7OzlhpPJXmLDLpb1fZwSOPMyOtrpR_GZLcovMTqS8Z6kvh8T-TRpvvZibBEgJk0GoNp7ARCOVIT2PwDuMreLqsQli92UB-6wKSuUkVewl_YYcfmhWHlEz0Pvi26q_a_617uatoFHUsHpNzrnL-DEh0NX1on4q143fxMmOBvzXTMjycbdybvC9iyIHjukKFS10bax2g9snmd40YeQL1-0ubR5l_I">
+</div>
+</header>
+<main class="w-full max-w-md px-container-padding-mobile pt-8 pb-32 flex flex-col gap-stack-md">
+<!-- Header Section -->
+<section class="flex flex-col gap-2">
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile text-on-surface">Complete Profile</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Your safety is our priority. Let's customize your experience for maximum protection.</p>
+</section>
+<!-- Profile Setup Card -->
+<div class="bg-[#F8F6F4] border border-[#E7D6CC] rounded-24 p-6 shadow-[0_20px_20px_-5px_rgba(0,0,0,0.08)] flex flex-col gap-6 relative overflow-hidden">
+<!-- Decorative Accent -->
+<div class="absolute -top-10 -right-10 w-24 h-24 bg-primary-container/10 rounded-full blur-3xl"></div>
+<!-- Full Name -->
+<div class="flex flex-col gap-2">
+<label class="font-label-lg text-label-lg text-on-surface-variant px-1" for="full-name">Full Name</label>
+<div class="relative">
+<input class="w-full h-14 px-4 bg-surface rounded-xl border-none focus:ring-2 focus:ring-primary-container transition-all text-body-lg font-body-lg placeholder:text-outline/50" id="full-name" placeholder="Alex Morgan" type="text">
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-outline/50">person</span>
+</div>
+</div>
+<!-- Phone Number -->
+<div class="flex flex-col gap-2">
+<label class="font-label-lg text-label-lg text-on-surface-variant px-1" for="phone">Phone Number</label>
+<div class="relative">
+<input class="w-full h-14 px-4 bg-surface rounded-xl border-none focus:ring-2 focus:ring-primary-container transition-all text-body-lg font-body-lg placeholder:text-outline/50" id="phone" placeholder="+1 (555) 000-0000" type="tel">
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-outline/50">call</span>
+</div>
+</div>
+<!-- Gender Selector (Dropdown) -->
+<div class="flex flex-col gap-2">
+<label class="font-label-lg text-label-lg text-on-surface-variant px-1" for="gender">Gender</label>
+<div class="relative">
+<select class="w-full h-14 px-4 bg-surface rounded-xl border-none appearance-none focus:ring-2 focus:ring-primary-container transition-all text-body-lg font-body-lg text-on-surface" id="gender">
+<option disabled="" selected="" value="">Select gender</option>
+<option value="female">Female</option>
+<option value="male">Male</option>
+<option value="non-binary">Non-binary</option>
+<option value="prefer-not-to-say">Prefer not to say</option>
+</select>
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-outline/50 pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Solo Traveler Toggle -->
+<div class="flex items-center justify-between p-4 bg-surface-container-low rounded-xl">
+<div class="flex flex-col">
+<span class="font-label-lg text-label-lg text-on-surface font-semibold">Solo Traveler</span>
+<span class="text-xs text-on-surface-variant">Enable specialized safety alerts</span>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox">
+<div class="w-11 h-6 bg-outline-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-container"></div>
+</label>
+</div>
+<!-- Medical Notes -->
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between px-1">
+<label class="font-label-lg text-label-lg text-on-surface-variant" for="medical">Medical Notes</label>
+<span class="text-[10px] uppercase tracking-widest text-primary/60 font-bold">Confidential</span>
+</div>
+<textarea class="w-full p-4 bg-surface rounded-xl border-none focus:ring-2 focus:ring-primary-container transition-all text-body-md font-body-md placeholder:text-outline/50 resize-none custom-scrollbar" id="medical" placeholder="Allergies, chronic conditions, or medications..." rows="3"></textarea>
+</div>
+</div>
+<!-- Progress Indicator -->
+<div class="flex justify-center gap-2 py-4">
+<div class="h-1.5 w-8 rounded-full bg-primary-container"></div>
+<div class="h-1.5 w-2 rounded-full bg-outline-variant"></div>
+<div class="h-1.5 w-2 rounded-full bg-outline-variant"></div>
+</div>
+</main>
+<!-- Bottom Action Container -->
+<div class="fixed bottom-0 left-0 w-full p-6 glass-header bg-surface/80 border-t border-outline-variant/20 flex flex-col items-center gap-4">
+<button class="w-full max-w-md h-14 bg-primary-container text-on-primary font-label-lg text-lg rounded-full shadow-lg shadow-primary-container/20 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2">
+            Continue
+            <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+<p class="text-label-md text-on-surface-variant">You can change these settings later in your profile.</p>
+</div>
+<!-- Background Decoration -->
+<div class="fixed inset-0 -z-10 overflow-hidden pointer-events-none">
+<div class="absolute top-1/4 -left-20 w-64 h-64 bg-secondary-container/5 rounded-full blur-[80px]"></div>
+<div class="absolute bottom-1/4 -right-20 w-96 h-96 bg-primary-container/5 rounded-full blur-[100px]"></div>
+</div>
+<script>
+        // Simple touch feedback for interactive elements
+        document.querySelectorAll('input, select, textarea, button').forEach(el => {
+            el.addEventListener('touchstart', () => {
+                el.classList.add('opacity-80');
+            });
+            el.addEventListener('touchend', () => {
+                el.classList.remove('opacity-80');
+            });
+        });
+
+        // Navigation simulation
+        document.querySelector('button').addEventListener('click', () => {
+            // Ripple effect or state change logic would go here
+            const btn = document.querySelector('button');
+            btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span> Saving...';
+            setTimeout(() => {
+                btn.innerHTML = 'Complete <span class="material-symbols-outlined">check_circle</span>';
+                btn.classList.replace('bg-primary-container', 'bg-tertiary-container');
+            }, 1200);
+        });
+    </script>
+</body></html>

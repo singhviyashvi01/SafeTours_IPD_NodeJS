@@ -1,0 +1,391 @@
+<!DOCTYPE html><html class="light" lang="en"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>SafeTours - Nearby Emergency Services</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-effect {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        .soft-shadow {
+            box-shadow: 0 4px 20px -5px rgba(145, 76, 34, 0.08);
+        }
+        /* Custom scrollbar for category chips */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        @keyframes pulse-subtle {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .animate-pulse-subtle {
+            animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#97481b",
+                        "outline-variant": "#d9c2b7",
+                        "tertiary-fixed": "#8ff2f8",
+                        "surface-container": "#faebe4",
+                        "inverse-on-surface": "#fdeee7",
+                        "on-surface": "#211a16",
+                        "on-error": "#ffffff",
+                        "surface-tint": "#914c22",
+                        "on-primary": "#ffffff",
+                        "inverse-surface": "#372f2b",
+                        "surface-variant": "#eedfd9",
+                        "secondary-fixed-dim": "#ffb692",
+                        "on-secondary-fixed-variant": "#783104",
+                        "background": "#fff8f6",
+                        "surface-container-high": "#f4e5df",
+                        "on-tertiary-fixed-variant": "#004f53",
+                        "primary-fixed-dim": "#ffb68f",
+                        "on-tertiary-fixed": "#002021",
+                        "tertiary-container": "#46aeb4",
+                        "on-primary-fixed": "#331100",
+                        "primary-fixed": "#ffdbca",
+                        "primary": "#914c22",
+                        "outline": "#86736a",
+                        "on-background": "#211a16",
+                        "surface-dim": "#e6d7d1",
+                        "on-tertiary-container": "#003d40",
+                        "tertiary-fixed-dim": "#72d6dc",
+                        "surface-container-highest": "#eedfd9",
+                        "on-secondary-fixed": "#341100",
+                        "on-primary-fixed-variant": "#73350c",
+                        "on-primary-container": "#5e2600",
+                        "primary-container": "#df8b5c",
+                        "tertiary": "#00696e",
+                        "error": "#ba1a1a",
+                        "secondary-container": "#ff9a66",
+                        "on-secondary-container": "#763002",
+                        "on-tertiary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff",
+                        "on-surface-variant": "#54433b",
+                        "surface-bright": "#fff8f6",
+                        "inverse-primary": "#ffb68f",
+                        "surface": "#fff8f6",
+                        "surface-container-low": "#fff1eb",
+                        "error-container": "#ffdad6",
+                        "on-secondary": "#ffffff",
+                        "secondary-fixed": "#ffdbcb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-padding-desktop": "40px",
+                        "container-padding-mobile": "20px",
+                        "gutter": "16px",
+                        "base": "8px",
+                        "stack-sm": "12px",
+                        "stack-md": "24px",
+                        "stack-lg": "48px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "label-lg": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background text-on-background min-h-screen pb-24">
+<!-- Top App Bar -->
+<header class="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-outline-variant/30 px-container-padding-mobile h-16 flex items-center justify-between">
+<div class="flex items-center gap-4">
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors active:scale-95 duration-200">
+<span class="material-symbols-outlined text-primary">arrow_back</span>
+</button>
+<h1 class="font-headline-sm text-headline-sm text-on-surface">Nearby Emergency Services</h1>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+</button>
+</header>
+<main class="max-w-screen-xl mx-auto px-container-padding-mobile py-6">
+<!-- Search & Filter Bar -->
+<section class="flex flex-col gap-stack-sm mb-stack-md">
+<div class="flex gap-3">
+<div class="relative flex-grow">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-4 py-3.5 text-body-md focus:ring-2 focus:ring-primary/20 placeholder:text-outline transition-all" placeholder="Search services..." type="text">
+</div>
+<button class="w-14 h-14 bg-surface-container-low flex items-center justify-center rounded-2xl text-on-surface-variant hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined">tune</span>
+</button>
+</div>
+<!-- Category Filter Chips -->
+<div class="flex overflow-x-auto gap-3 hide-scrollbar pb-2">
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-full font-label-lg whitespace-nowrap shadow-sm">
+<span class="material-symbols-outlined text-[18px]">local_hospital</span>
+                    Hospitals
+                </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container-high text-on-surface-variant rounded-full font-label-lg whitespace-nowrap hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">local_police</span>
+                    Police Stations
+                </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container-high text-on-surface-variant rounded-full font-label-lg whitespace-nowrap hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">emergency_share</span>
+                    Ambulance
+                </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container-high text-on-surface-variant rounded-full font-label-lg whitespace-nowrap hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">shield</span>
+                    Emergency Shelters
+                </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container-high text-on-surface-variant rounded-full font-label-lg whitespace-nowrap hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">call</span>
+                    Emergency Helplines
+                </button>
+</div>
+</section>
+<!-- Sorting & Actions -->
+<div class="flex items-center justify-between mb-stack-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">sort</span>
+<span class="font-label-lg text-on-surface-variant">Sorted by Nearest</span>
+</div>
+<button class="flex items-center gap-1 text-primary font-label-lg active:rotate-180 transition-transform duration-500">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+                Refresh
+            </button>
+</div>
+<!-- Service Cards Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<!-- Service Card 1 -->
+<div class="bg-surface-container-lowest rounded-2xl p-5 soft-shadow border border-outline-variant/30 transition-transform hover:scale-[1.01] duration-300">
+<div class="flex justify-between items-start mb-4">
+<div class="flex gap-4">
+<div class="w-12 h-12 rounded-xl bg-tertiary-container/20 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">local_hospital</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">St. Jude Medical Center</h3>
+<div class="flex items-center gap-1.5 mt-1">
+<span class="material-symbols-outlined text-primary text-[16px]">location_on</span>
+<span class="font-label-md text-on-surface-variant">0.8 km away • Central District</span>
+</div>
+</div>
+</div>
+<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full font-label-md animate-pulse-subtle">Open 24/7</span>
+</div>
+<div class="mb-5 flex gap-4 items-center">
+<div class="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-outline-variant/20">
+<div class="w-full h-full bg-cover bg-center" data-alt="A clean, minimalist map showing a street corner with a medical cross icon highlighted in a vibrant orange primary color. The map style is high-end and simplified, featuring soft cream and peach tones, maintaining the SafeTours app aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuC5Esinf_Hf79oh9_PcbhTQRIoOTG0bi7Amu-ZwwJRuDoCTCZdNmnyQIkAQ9zSDn3eZGmMwYhQDOkz_56_41bROCWqlYGsMYYDQ4zs2CC34gPEiS28_Q6BodP7cLhOUqtrPbxCbtd2NuIIhR8b3-uqXbDDnfZZ9aZPq4L3TUrRpfacomsH7ymTR3NYAoGwCPRiuQOeJ8-FSdUeeB1dUttVvy7cGmdLbWs7pmZ6NK5teaMbEnRGBWexwE3o39P7aBPFuQH0J7GVzLnRa')"></div>
+</div>
+<div class="flex-grow">
+<p class="text-on-surface-variant font-body-md leading-tight mb-2">452 Safety Boulevard, Uptown Plaza, New York</p>
+<p class="text-primary font-label-lg flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">phone</span>
+                            +1 (555) 012-3456
+                        </p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<button class="w-full py-3 rounded-full border-1.5 border-primary text-primary font-label-lg hover:bg-primary/5 transition-colors active:scale-95 duration-200">
+                        Call
+                    </button>
+<button class="w-full py-3 rounded-full bg-primary text-on-primary font-label-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[18px]">directions</span>
+                        Navigate
+                    </button>
+</div>
+</div>
+<!-- Service Card 2 -->
+<div class="bg-surface-container-lowest rounded-2xl p-5 soft-shadow border border-outline-variant/30 transition-transform hover:scale-[1.01] duration-300">
+<div class="flex justify-between items-start mb-4">
+<div class="flex gap-4">
+<div class="w-12 h-12 rounded-xl bg-primary-container/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">local_police</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">12th Precinct Station</h3>
+<div class="flex items-center gap-1.5 mt-1">
+<span class="material-symbols-outlined text-primary text-[16px]">location_on</span>
+<span class="font-label-md text-on-surface-variant">1.5 km away • Downtown</span>
+</div>
+</div>
+</div>
+<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full font-label-md">Open 24/7</span>
+</div>
+<div class="mb-5 flex gap-4 items-center">
+<div class="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-outline-variant/20">
+<div class="w-full h-full bg-cover bg-center" data-alt="A macro overhead view of a modern city map with a police badge icon marker. The aesthetic uses soft shadows and tonal layers of cream and peach, with high-visibility orange accents for the markers. Minimalist UI design for safety applications." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDlCYd2Hap9q7pwtrCAjm4jitAVelQS41z0-d5tQB2uD4pxLziPyjL8vYYZCiJQPH2gPgWkOL5ewjVBWNn3vLsmT7uIDfqBfEpn5B77nubHFBARSYUs6Qb8L92PQpgg0jTwQheEOINmUEgZBTeTKjI448DnAndFKNyPvly9_dmBIRcD-YStswQ132vqBDnHIoMsStkvgh2RMGoxWYiOBqJxXyh-zZ2OMAOSqwqqU1BACfpQl_JaCs0NyUc0FhzS9Pw9ed_v4Vtn-0Px')"></div>
+</div>
+<div class="flex-grow">
+<p class="text-on-surface-variant font-body-md leading-tight mb-2">1289 Justice Avenue, City Square, New York</p>
+<p class="text-primary font-label-lg flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">phone</span>
+                            +1 (555) 911-0012
+                        </p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<button class="w-full py-3 rounded-full border-1.5 border-primary text-primary font-label-lg hover:bg-primary/5 transition-colors active:scale-95 duration-200">
+                        Call
+                    </button>
+<button class="w-full py-3 rounded-full bg-primary text-on-primary font-label-lg flex items-center justify-center gap-2 hover:opacity-90 transition-opacity active:scale-95 duration-200">
+<span class="material-symbols-outlined text-[18px]">directions</span>
+                        Navigate
+                    </button>
+</div>
+</div>
+<!-- Service Card 3 -->
+<div class="bg-surface-container-lowest rounded-2xl p-5 soft-shadow border border-outline-variant/30 transition-transform hover:scale-[1.01] duration-300 opacity-90 grayscale-[0.2]">
+<div class="flex justify-between items-start mb-4">
+<div class="flex gap-4">
+<div class="w-12 h-12 rounded-xl bg-on-surface-variant/10 flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined">shield</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Community Safety Hub</h3>
+<div class="flex items-center gap-1.5 mt-1">
+<span class="material-symbols-outlined text-primary text-[16px]">location_on</span>
+<span class="font-label-md text-on-surface-variant">2.1 km away • East Side</span>
+</div>
+</div>
+</div>
+<span class="bg-surface-variant text-on-surface-variant px-3 py-1 rounded-full font-label-md">Closed</span>
+</div>
+<div class="mb-5 flex gap-4 items-center">
+<div class="flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-outline-variant/20">
+<div class="w-full h-full bg-cover bg-center" data-alt="A detailed digital map interface with a shield icon. The lighting is soft and ambient, creating a serene, trustworthy environment. The color palette consists of warm peach, cream, and deep brown accents, reflecting a calm authority brand identity." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDhqlJMCj0qjvwIxjTcTSftaRFm2QZJe5VGESKc-oK_eJOCyTkNy-NfFsNouSVjn7KBNqtvovZwlwzpFN90vVgYDTqdaie7awyuoWeichVqVlF97br5o0wv7ErXEcIQuVplc7iw-uXicPsAuHDrXafftRVB1OKBflqG123KC2IHiXraCGqUDRTpjHA_6kYCyyb-VLMfZFuBPR8IpYIrETVDy2v_WG7Aah3LrSy1t7Dg2tJlN9jVmOwfXD5zOueHtg9Ci2ozYhhLOhPN')"></div>
+</div>
+<div class="flex-grow">
+<p class="text-on-surface-variant font-body-md leading-tight mb-2">12 Oak Street, East Side Community Center</p>
+<p class="text-primary font-label-lg flex items-center gap-1">
+<span class="material-symbols-outlined text-[18px]">schedule</span>
+                            Opens 8:00 AM
+                        </p>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3">
+<button class="w-full py-3 rounded-full border-1.5 border-outline text-outline font-label-lg cursor-not-allowed">
+                        Call
+                    </button>
+<button class="w-full py-3 rounded-full bg-surface-container-high text-on-surface-variant font-label-lg flex items-center justify-center gap-2 hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">directions</span>
+                        Navigate
+                    </button>
+</div>
+</div>
+<!-- Service Card 4 (Helpline) -->
+<div class="bg-tertiary-container/10 border-2 border-tertiary/20 rounded-2xl p-5 soft-shadow col-span-1 md:col-span-2 lg:col-span-1">
+<div class="flex items-center gap-4 mb-4">
+<div class="w-12 h-12 rounded-full bg-tertiary text-on-tertiary flex items-center justify-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">support_agent</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-tertiary">24/7 Crisis Helpline</h3>
+<p class="font-label-md text-on-tertiary-container">Immediate support for any emergency</p>
+</div>
+</div>
+<div class="bg-surface-container-lowest/60 rounded-xl p-4 mb-5 border border-tertiary/10">
+<p class="text-body-md text-on-surface mb-1 font-medium">Free, confidential support available instantly. Available in 12 languages.</p>
+<div class="flex gap-2 flex-wrap mt-2">
+<span class="bg-tertiary/10 text-tertiary px-2 py-0.5 rounded text-[11px] font-bold">MULTILINGUAL</span>
+<span class="bg-tertiary/10 text-tertiary px-2 py-0.5 rounded text-[11px] font-bold">VOICE/TEXT</span>
+</div>
+</div>
+<button class="w-full py-4 rounded-full bg-tertiary text-on-tertiary font-headline-sm flex items-center justify-center gap-3 shadow-lg active:scale-[0.98] transition-all">
+<span class="material-symbols-outlined">call</span>
+                    Call Hotline Now
+                </button>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar -->
+<nav class="fixed bottom-0 w-full z-50 rounded-t-xl bg-surface/80 dark:bg-surface-container-lowest/80 backdrop-blur-xl border-t border-outline-variant/20 shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.08)]">
+<div class="flex justify-around items-center px-4 pt-3 pb-6 w-full">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined">home</span>
+<span class="font-label-md text-label-md mt-1">Home</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined">map</span>
+<span class="font-label-md text-label-md mt-1">Map</span>
+</button>
+<!-- SOS Button - Intent: SOS Tab -->
+<button class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-container rounded-full px-4 py-1.5 transition-all active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">emergency</span>
+<span class="font-label-md text-label-md mt-1 font-bold">SOS</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-label-md text-label-md mt-1">Assistant</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-high/50 active:scale-90 duration-200 touch-none">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md mt-1">Settings</span>
+</button>
+</div>
+</nav>
+<!-- FAB (Contextual for Emergency Actions) -->
+<button class="fixed right-6 bottom-24 w-16 h-16 rounded-full bg-error text-on-error shadow-xl flex items-center justify-center z-40 active:scale-95 transition-transform animate-bounce" style="animation-duration: 3s;">
+<span class="material-symbols-outlined text-[32px]" style="font-variation-settings: 'FILL' 1;">emergency_home</span>
+</button>
+<script>
+        // Micro-interaction for refresh button rotation
+        document.querySelector('.active\\:rotate-180').addEventListener('click', function() {
+            this.classList.add('rotate-180');
+            setTimeout(() => {
+                this.classList.remove('rotate-180');
+            }, 500);
+        });
+
+        // Simple interaction for category chips
+        const chips = document.querySelectorAll('.flex.overflow-x-auto.gap-3 button');
+        chips.forEach(chip => {
+            chip.addEventListener('click', () => {
+                chips.forEach(c => {
+                    c.classList.remove('bg-primary', 'text-on-primary', 'shadow-sm');
+                    c.classList.add('bg-surface-container-high', 'text-on-surface-variant');
+                });
+                chip.classList.add('bg-primary', 'text-on-primary', 'shadow-sm');
+                chip.classList.remove('bg-surface-container-high', 'text-on-surface-variant');
+            });
+        });
+    </script>
+</body></html>
