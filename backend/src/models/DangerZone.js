@@ -114,6 +114,38 @@ const dangerZoneSchema = new mongoose.Schema(
       },
       index: true, // Frequently filtered in app queries (e.g., "show only High/Extreme zones")
     },
+
+    // ─── Phase 3 & Phase 4 Dynamic Risk Fields ──────────────────────────────────
+    // What the code is doing: Adding dynamic score fields for Crowd and Environmental modules.
+    // Why it is required: Allows DangerZone documents to store dynamic crowd and environmental scores.
+    // Which existing Phase 1 or Phase 2 implementation is being reused: Extends existing Phase 2 DangerZone schema.
+    h3Index: {
+      type: String,
+      index: true,
+      default: null,
+    },
+    crowdScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'Crowd score cannot be below 0'],
+      max: [100, 'Crowd score cannot exceed 100'],
+    },
+    weatherScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'Weather score cannot be below 0'],
+      max: [100, 'Weather score cannot exceed 100'],
+    },
+    environmentalScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'Environmental score cannot be below 0'],
+      max: [100, 'Environmental score cannot exceed 100'],
+    },
+    lastWeatherUpdate: {
+      type: Date,
+      default: null,
+    },
   },
   {
     // Mongoose automatically manages createdAt and updatedAt timestamps.

@@ -11,7 +11,9 @@ const { festivals } = require('../../utils/festivalConfig');
  * different controllers, and future risk engines.
  */
 
-// Category mapping helper
+// What the code is doing: Category mapping for place types including police and hospital.
+// Why it is required: Maps Geoapify category strings to crowd score weight keys.
+// Which existing Phase 1 or Phase 2 implementation is being reused: Reuses existing crowd score calculation service.
 const categoryMap = {
   'airport': 'airport',
   'public_transport.train': 'railway_station',
@@ -29,6 +31,8 @@ const categoryMap = {
   'entertainment.museum': 'museum',
   'education.university': 'university',
   'healthcare.hospital': 'hospital',
+  'service.police': 'police_station',
+  'service.police.station': 'police_station',
   'religion.place_of_worship.hinduism': 'temple',
   'religion.place_of_worship.christianity': 'church',
   'religion.place_of_worship.islam': 'mosque'
@@ -54,6 +58,7 @@ const findWeightKey = (categories = []) => {
   // Fallback to substring keyword matches for robustness
   for (const cat of categories) {
     const lowerCat = cat.toLowerCase();
+    if (lowerCat.includes('police')) return 'police_station';
     if (lowerCat.includes('train')) return 'railway_station';
     if (lowerCat.includes('subway') || lowerCat.includes('metro')) return 'metro_station';
     if (lowerCat.includes('bus')) return 'bus_station';

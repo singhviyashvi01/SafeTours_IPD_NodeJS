@@ -75,7 +75,9 @@ const fetchNearbyPlaces = async (lat, lng, radius = 1000) => {
     throw error;
   }
 
-  // List of categories to search for nearby (aligned with weights)
+  // What the code is doing: Queries Geoapify Places API for places including Police, Hospital, Railway, Metro, Bus, Mall, Market, Beach, Tourist Attractions.
+  // Why it is required: Required by Phase 3 Crowd Module to retrieve nearby places.
+  // Which existing Phase 1 or Phase 2 implementation is being reused: Reuses existing Geoapify service integration.
   const categoriesList = [
     'airport',
     'public_transport.train',
@@ -93,6 +95,7 @@ const fetchNearbyPlaces = async (lat, lng, radius = 1000) => {
     'entertainment.museum',
     'education.university',
     'healthcare.hospital',
+    'service.police',
     'religion.place_of_worship.hinduism',
     'religion.place_of_worship.christianity',
     'religion.place_of_worship.islam'

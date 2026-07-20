@@ -146,6 +146,129 @@ class DangerZoneService {
       },
     };
   }
+
+  // ─── Phase 3 & Phase 4 Update Methods ─────────────────────────────────────────
+
+  /**
+   * What the code is doing:
+   * Updates ONLY the `crowdScore` and `h3Index` fields of the nearest DangerZone document.
+   * Why it is required:
+   * Enables Phase 3 (Crowd Module) to persist calculated crowd scores into MongoDB safely without overwriting crime or weather data.
+   * Which existing Phase 1 or Phase 2 implementation is being reused:
+   * Reuses getNearestDangerZone from Phase 2 and DangerZone Mongoose model with atomic MongoDB $set.
+   *
+   * @param {number} latitude - WGS84 latitude
+   * @param {number} longitude - WGS84 longitude
+   * @param {number} crowdScore - Calculated crowd score (0-100)
+   * @param {string} h3Index - H3 index string for the coordinate
+   * @returns {Promise<Object|null>} Updated DangerZone document or null if no zone found.
+   */
+  async updateCrowdScore(latitude, longitude, crowdScore, h3Index) {
+    try {
+      const nearestZone = await this.getNearestDangerZone(latitude, longitude);
+      if (!nearestZone) {
+        logger.warn('[DangerZoneService.updateCrowdScore] No DangerZone found to update crowd score.');
+        return null;
+      }
+
+      // Merge Safety: Atomic $set update to modify ONLY crowdScore, h3Index, and updatedAt.
+      // Never overwrites crimeScore, weatherScore, environmentalScore, or infraScore.
+      const updatedZone = await DangerZone.findByIdAndUpdate(
+        nearestZone._id,
+        {
+          $set: {
+            crowdScore: Number(crowdScore),
+            ...(h3Index && { h3Index }),
+            updatedAt: new Date(),
+          },
+        },
+        { new: true, runValidators: true }
+      ).lean();
+
+      logger.info(
+        `[DangerZoneService.updateCrowdScore] Updated DangerZone #${nearestZone.hotspotId} crowdScore to ${crowdScore}.`
+      );
+      return updatedZone;
+    } catch (error) {
+      logger.error('[DangerZoneService.updateCrowdScore] Failed to update crowd score in MongoDB.', error);
+      throw new Error('Failed to update crowd score in database.');
+    }
+  }
+
+  /**
+   * What the code is doing:
+   * Updates ONLY `weatherScore`, `environmentalScore`, `lastWeatherUpdate`, and `h3Index` in DangerZone document(s).
+   * Why it is required:
+   * Enables Phase 4 (Environmental H3 Module) to persist weather and environmental risk scores into MongoDB safely.
+   * Which existing Phase 1 or Phase 2 implementation is being reused:
+   * Reuses getNearestDangerZone / 2dsphere index from Phase 2 and DangerZone Mongoose model with atomic $set.
+   *
+   * @param {number} latitude - WGS84 latitude
+   * @param {number} longitude - WGS84 longitude
+   * @param {number} weatherScore - Calculated weather score (0-100)
+   * @param {number} environmentalScore - Calculated environmental score (0-100)
+   * @param {string} h3Index - H3 index string for coordinate
+   * @param {string[]} [affectedH3Cells] - Optional array of affected H3 cells for multi-location weather impact
+   * @returns {Promise<Object[]>} Array of updated DangerZone documents.
+   */
+  async updateEnvironmentalScore(latitude, longitude, weatherScore, environmentalScore, h3Index, affectedH3Cells = []) {
+    try {
+      let filter = {};
+
+      if (Array.isArray(affectedH3Cells) && affectedH3Cells.length > 0) {
+        // Match DangerZones with h3Index in affectedH3Cells
+        filter = { h3Index: { $in: affectedH3Cells } };
+      }
+
+      // If no cell-matched zones found, fallback to updating nearest zone by coordinates
+      const existingMatchingZones = filter.h3Index ? await DangerZone.find(filter).lean() : [];
+
+      if (existingMatchingZones.length > 0) {
+        await DangerZone.updateMany(filter, {
+          $set: {
+            weatherScore: Number(weatherScore),
+            environmentalScore: Number(environmentalScore),
+            lastWeatherUpdate: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+        const updatedZones = await DangerZone.find(filter).lean();
+        logger.info(
+          `[DangerZoneService.updateEnvironmentalScore] Updated ${updatedZones.length} affected DangerZone documents.`
+        );
+        return updatedZones;
+      }
+
+      // Default: Update nearest single zone
+      const nearestZone = await this.getNearestDangerZone(latitude, longitude);
+      if (!nearestZone) {
+        logger.warn('[DangerZoneService.updateEnvironmentalScore] No DangerZone found to update environmental score.');
+        return [];
+      }
+
+      const updatedZone = await DangerZone.findByIdAndUpdate(
+        nearestZone._id,
+        {
+          $set: {
+            weatherScore: Number(weatherScore),
+            environmentalScore: Number(environmentalScore),
+            lastWeatherUpdate: new Date(),
+            ...(h3Index && { h3Index }),
+            updatedAt: new Date(),
+          },
+        },
+        { new: true, runValidators: true }
+      ).lean();
+
+      logger.info(
+        `[DangerZoneService.updateEnvironmentalScore] Updated DangerZone #${nearestZone.hotspotId} environmentalScore to ${environmentalScore}.`
+      );
+      return [updatedZone];
+    } catch (error) {
+      logger.error('[DangerZoneService.updateEnvironmentalScore] Failed to update environmental score in MongoDB.', error);
+      throw new Error('Failed to update environmental score in database.');
+    }
+  }
 }
 
 // Export as a singleton — matches LocationService pattern

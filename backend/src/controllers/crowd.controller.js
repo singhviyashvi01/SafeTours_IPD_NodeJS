@@ -1,15 +1,18 @@
 const { fetchNearbyPlaces } = require('../services/crowd/geoapify.service');
 const { calculateCrowdScore } = require('../services/crowd/crowdScore.service');
+const h3GridService = require('../services/h3GridService');
+const dangerZoneService = require('../services/dangerZoneService');
 const ApiError = require('../utils/apiError');
 
 /**
  * Purpose of this controller:
- * Validate incoming requests for the crowd intelligence module and return front-end ready
- * JSON payloads for crowd score and level estimates.
+ * Validate incoming requests for the crowd intelligence module, compute H3 index,
+ * calculate crowd density score, update the DangerZone MongoDB document using $set,
+ * and return front-end ready JSON payloads.
  *
  * Why this exists:
- * The route layer stays lightweight while the controller remains the single place where
- * request validation and response shaping happen for this module.
+ * Keeps HTTP layer thin while orchestrating H3 conversion, Geoapify places search,
+ * crowd scoring, and atomic DangerZone database updates.
  */
 
 /**
@@ -45,10 +48,16 @@ const validateCoordinates = ({ lat, lng }) => {
 
 /**
  * Purpose of this function:
- * Handle requests to compute crowd density score for specified coordinates.
- * Why it is needed:
- * Resolves request coordinates, orchestrates call to geoapify places search,
- * invokes scoring logic, and returns formatted JSON response.
+ * Handle requests to compute crowd density score for specified coordinates and update DangerZone.
+ *
+ * What the code is doing:
+ * Resolves request coordinates, converts lat/lng to H3 index via Phase 1 H3 Engine,
+ * fetches nearby places via Geoapify, calculates crowd score using time/festival logic,
+ * and updates ONLY crowdScore inside the existing DangerZone MongoDB document via $set.
+ * Why it is required:
+ * Implements Phase 3 Crowd Module requirement to map coordinates to H3 index and update DangerZone.
+ * Which existing Phase 1 or Phase 2 implementation is being reused:
+ * Reuses Phase 1 H3 Engine (h3GridService.latLngToH3) and Phase 2 DangerZone model (dangerZoneService.updateCrowdScore).
  */
 const getCrowdScore = async (req, res, next) => {
   try {
@@ -64,21 +73,38 @@ const getCrowdScore = async (req, res, next) => {
     const { latitude, longitude } = validateCoordinates({ lat, lng });
     const searchRadius = radius ? Number(radius) : 1000;
 
+    // What the code is doing: Convert coordinates to H3 index using Phase 1 H3 Engine.
+    // Why it is required: Provides spatial index for crowd intelligence.
+    // Reuses: Phase 1 h3GridService.latLngToH3
+    const h3Index = h3GridService.latLngToH3(latitude, longitude);
+
     // Fetch places from Geoapify integration
     const places = await fetchNearbyPlaces(latitude, longitude, searchRadius);
 
     // Compute crowd intelligence score and breakdown
     const crowdData = calculateCrowdScore(places);
 
+    // What the code is doing: Update ONLY crowdScore inside existing DangerZone document using $set.
+    // Why it is required: Merge safety; prevents overwriting crime, weather, or infra scores.
+    // Reuses: Phase 2 DangerZone collection & dangerZoneService
+    const updatedDangerZone = await dangerZoneService.updateCrowdScore(
+      latitude,
+      longitude,
+      crowdData.crowdScore,
+      h3Index
+    );
+
     return res.status(200).json({
       success: true,
-      message: 'Crowd score retrieved successfully.',
+      message: 'Crowd score retrieved and DangerZone updated successfully.',
       data: {
+        h3Index,
         crowdScore: crowdData.crowdScore,
         crowdLevel: crowdData.crowdLevel,
         nearbyPlaces: crowdData.nearbyPlaces,
-        scoreBreakdown: crowdData.scoreBreakdown
-      }
+        scoreBreakdown: crowdData.scoreBreakdown,
+        updatedDangerZone,
+      },
     });
   } catch (error) {
     next(error);

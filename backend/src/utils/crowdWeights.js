@@ -8,23 +8,27 @@
  * can be tuned without modifying the scoring service code.
  */
 
+// What the code is doing: Configures place category weights including negative weights for safety/emergency services (Police = -5, Hospital = -5).
+// Why it is required: Defines place category weights for Phase 3 Crowd scoring.
+// Which existing Phase 1 or Phase 2 implementation is being reused: Reuses existing crowdWeights configuration module.
 const crowdWeights = {
   airport: 90,
-  railway_station: 85,
-  metro_station: 80,
-  bus_station: 70,
-  shopping_mall: 75,
-  marketplace: 80,
+  railway_station: 12,
+  metro_station: 10,
+  bus_station: 8,
+  shopping_mall: 8,
+  marketplace: 10,
   stadium: 95,
   tourist_attraction: 70,
-  beach: 60,
+  beach: 12,
+  police_station: -5,
+  hospital: -5,
   restaurant: 50,
   cafe: 40,
   cinema: 65,
   park: 45,
   museum: 40,
   university: 55,
-  hospital: 50,
   temple: 75,
   church: 60,
   mosque: 70
