@@ -1,10 +1,10 @@
 const h3 = require('h3-js');
-const GridCell = require('../models/GridCell');
 const newsService = require('../services/newsService');
 const { geocodeLocation } = require('../services/geocodingService');
 const { extractLocation } = require('../utils/locationExtractor');
 const { severityWeights, defaultNewsWeight } = require('../config/newsSeverity');
 const h3GridService = require('../services/h3GridService');
+const riskEngine = require('../services/riskEngine');
 const logger = require('../utils/logger');
 
 /**
@@ -36,7 +36,7 @@ async function processNewsUpdates() {
   try {
     // 1. Reset all existing newsScore values in GridCell collection to 0 (news is transient)
     logger.info('[newsScheduler] Resetting newsScore for all grid cells...');
-    await GridCell.updateMany({}, { $set: { newsScore: 0 } });
+    await riskEngine.updateGridCellScores({ newsScore: { $ne: 0 } }, { newsScore: 0 });
 
     // 2. Fetch normalized articles for Mumbai
     const articles = await newsService.fetchNews('Mumbai');
@@ -110,26 +110,12 @@ async function processNewsUpdates() {
       }
     }
 
-    // 5. Update only existing GridCell documents in MongoDB
+    // 5. Update only existing GridCell documents in MongoDB and recalculate risk.
     logger.info(`[newsScheduler] Writing scores to MongoDB for ${Object.keys(finalScores).length} cells (including neighbors)...`);
-    let updatedCount = 0;
-
-    for (const [h3Index, score] of Object.entries(finalScores)) {
-      // Find matching cell by either h3Index or h3CellId
-      const cell = await GridCell.findOne({
-        $or: [
-          { h3Index: h3Index },
-          { h3CellId: h3Index }
-        ]
-      });
-
-      if (cell) {
-        cell.newsScore = score;
-        cell.updatedAt = new Date();
-        await cell.save();
-        updatedCount++;
-      }
-    }
+    const { modifiedCount: updatedCount } = await riskEngine.updateGridCellScoresByH3Index(
+      'newsScore',
+      finalScores
+    );
 
     logger.info(`[newsScheduler] News updates complete. Successfully updated ${updatedCount} GridCells.`);
   } catch (error) {
