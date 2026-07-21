@@ -44,6 +44,148 @@ class DangerZoneService {
   }
 
   /**
+   * What this code is doing:
+   * Queries MongoDB DangerZone documents within a 2D bounding box using $geoWithin $box.
+   * Why it is needed:
+   * Enables the frontend map view to render only DangerZones inside the active map screen viewport.
+   * Which existing module is being reused:
+   * Uses MongoDB 2dsphere / GeoJSON index on DangerZone.location.
+   * How the frontend consumes this API:
+   * Called by GET /api/danger-zones?minLat=18.9&maxLat=19.1&minLng=72.8&maxLng=72.9 when zooming/panning the map.
+   */
+  async getDangerZonesInBoundingBox(minLat, maxLat, minLng, maxLng) {
+    try {
+      const zones = await DangerZone.find({
+        location: {
+          $geoWithin: {
+            $box: [
+              [Number(minLng), Number(minLat)], // Bottom-left [longitude, latitude]
+              [Number(maxLng), Number(maxLat)], // Top-right [longitude, latitude]
+            ],
+          },
+        },
+      })
+        .sort({ crimeScore: -1 })
+        .select('-__v')
+        .lean();
+
+      logger.info(`[DangerZoneService.getDangerZonesInBoundingBox] Fetched ${zones.length} zones in box [${minLat}, ${minLng}] -> [${maxLat}, ${maxLng}].`);
+      return zones;
+    } catch (error) {
+      logger.error('[DangerZoneService.getDangerZonesInBoundingBox] Bounding box query failed.', error);
+      throw new Error('Failed to retrieve danger zones within bounding box.');
+    }
+  }
+
+  /**
+   * What this code is doing:
+   * Retrieves nearby DangerZones within a radius (meters) using H3 cell expansion and $geoNear.
+   * Why it is needed:
+   * Enables nearby spatial search for safety alerts around a user's location.
+   * Which existing module is being reused:
+   * Reuses h3GridService.getAffectedH3Cells for H3 indexing and 2dsphere index for distance calculation.
+   * How the frontend consumes this API:
+   * Called by GET /api/danger-zones/nearby?lat=18.9220&lng=72.8347&radius=2000.
+   */
+  async getDangerZonesNearby(latitude, longitude, radiusInMeters = 1000) {
+    try {
+      const h3GridService = require('./h3GridService');
+      const radiusKm = Math.max(0.1, Number(radiusInMeters) / 1000);
+
+      // Get nearby H3 cells within radius using existing H3 utility
+      const nearbyH3Cells = h3GridService.getAffectedH3Cells(latitude, longitude, radiusKm, 9);
+
+      // Perform fast indexed query on DangerZone documents by matching h3Index
+      let zones = await DangerZone.find({
+        h3Index: { $in: nearbyH3Cells },
+      })
+        .select('-__v')
+        .lean();
+
+      // If no cell-matched zones, fallback to $geoNear with maxDistance
+      if (zones.length === 0) {
+        zones = await DangerZone.aggregate([
+          {
+            $geoNear: {
+              near: {
+                type: 'Point',
+                coordinates: [Number(longitude), Number(latitude)],
+              },
+              distanceField: 'distanceInMeters',
+              maxDistance: Number(radiusInMeters),
+              spherical: true,
+              key: 'location',
+            },
+          },
+          { $project: { __v: 0 } },
+        ]);
+      }
+
+      logger.info(`[DangerZoneService.getDangerZonesNearby] Found ${zones.length} nearby zones within ${radiusInMeters}m.`);
+      return zones;
+    } catch (error) {
+      logger.error('[DangerZoneService.getDangerZonesNearby] Nearby query failed.', error);
+      throw new Error('Failed to retrieve nearby danger zones.');
+    }
+  }
+
+  /**
+   * What this code is doing:
+   * Retrieves complete stored details of one H3 cell by its h3Index string without recalculating anything.
+   * Why it is needed:
+   * Enables map detail popups / drawers when a user taps an H3 hexagon cell on the map.
+   * Which existing module is being reused:
+   * Reuses DangerZone model and GridCell model fallback.
+   * How the frontend consumes this API:
+   * Called by GET /api/danger-zones/:h3Index (e.g. GET /api/danger-zones/8928308280fffff).
+   */
+  async getDangerZoneByH3Index(h3Index) {
+    try {
+      const GridCell = require('../models/GridCell');
+
+      // 1. Direct indexed query on DangerZone collection
+      let zone = await DangerZone.findOne({ h3Index }).select('-__v').lean();
+
+      // 2. If not in DangerZone hotspot collection, check GridCell collection
+      if (!zone) {
+        const gridCell = await GridCell.findOne({
+          $or: [{ h3Index }, { h3CellId: h3Index }],
+        }).select('-__v').lean();
+
+        if (gridCell) {
+          // Normalize GridCell format into DangerZone response shape
+          zone = {
+            h3Index: gridCell.h3Index || gridCell.h3CellId,
+            crimeScore: gridCell.crimeScore || 0,
+            crowdScore: gridCell.crowdScore || 0,
+            environmentalScore: gridCell.weatherScore || 0,
+            weatherScore: gridCell.weatherScore || 0,
+            newsScore: gridCell.newsScore || 0,
+            communityScore: gridCell.communityScore || 0,
+            totalRiskScore: gridCell.totalRiskScore || gridCell.totalRisk || 0,
+            riskLevel: gridCell.level || 'SAFE',
+            lastWeatherUpdate: gridCell.updatedAt,
+            lastNewsUpdate: gridCell.updatedAt,
+            createdAt: gridCell.createdAt,
+            updatedAt: gridCell.updatedAt,
+          };
+        }
+      }
+
+      if (!zone) {
+        logger.warn(`[DangerZoneService.getDangerZoneByH3Index] H3 cell '${h3Index}' not found.`);
+        return null;
+      }
+
+      logger.info(`[DangerZoneService.getDangerZoneByH3Index] Successfully fetched H3 cell '${h3Index}'.`);
+      return zone;
+    } catch (error) {
+      logger.error(`[DangerZoneService.getDangerZoneByH3Index] Lookup failed for '${h3Index}'.`, error);
+      throw new Error(`Failed to retrieve DangerZone for H3 index '${h3Index}'.`);
+    }
+  }
+
+  /**
    * Purpose of this method:
    * Find the single nearest DangerZone to a given coordinate pair using
    * MongoDB's $geoNear aggregation stage, which leverages the 2dsphere index

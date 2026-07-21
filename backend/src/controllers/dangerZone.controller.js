@@ -21,26 +21,34 @@ const ApiError = require('../utils/apiError');
 // ─── GET /api/danger-zones ────────────────────────────────────────────────────
 
 /**
- * Purpose of this handler:
- * Return all DangerZone documents from MongoDB, sorted by Crime Score
- * descending (most dangerous first) so the mobile map can render all hotspots
- * in a single request.
- *
- * Why no auth guard:
- * Crime hotspot data is static, read-only, and not user-sensitive.
- * Keeping it public lets the app fetch zones before the user logs in
- * (e.g. on the splash screen map view).
- *
- * Input  : none
- * Output : { success, message, count, data: [ DangerZone… ] }
+ * What this code is doing:
+ * Handles GET /api/danger-zones. If minLat, maxLat, minLng, maxLng query params are provided,
+ * it returns DangerZones inside that bounding box. Otherwise, returns all DangerZone documents.
+ * Why it is needed:
+ * Allows the frontend map to efficiently query only visible DangerZone hexagons inside the current map viewport.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getDangerZonesInBoundingBox and dangerZoneService.getAllDangerZones.
+ * How the frontend consumes this API:
+ * Called by frontend map views when rendering or panning the map screen.
  */
 const getAllDangerZones = async (req, res, next) => {
   try {
-    const zones = await dangerZoneService.getAllDangerZones();
+    const { minLat, maxLat, minLng, maxLng } = req.query;
+
+    let zones;
+    let message;
+
+    if (minLat !== undefined && maxLat !== undefined && minLng !== undefined && maxLng !== undefined) {
+      zones = await dangerZoneService.getDangerZonesInBoundingBox(minLat, maxLat, minLng, maxLng);
+      message = 'Danger zones within bounding box retrieved successfully.';
+    } else {
+      zones = await dangerZoneService.getAllDangerZones();
+      message = 'All danger zones retrieved successfully.';
+    }
 
     return res.status(200).json({
       success: true,
-      message: 'All danger zones retrieved successfully.',
+      message,
       count: zones.length,
       data: zones,
     });
@@ -49,29 +57,34 @@ const getAllDangerZones = async (req, res, next) => {
   }
 };
 
-// ─── GET /api/danger-zones/nearby?lat=&lng= ───────────────────────────────────
-
 /**
- * Purpose of this handler:
- * Return the single nearest DangerZone to the supplied coordinates using
- * the MongoDB 2dsphere geospatial index.
- *
- * Why only the nearest:
- * The most common mobile use-case is "am I near a danger zone right now?"
- * The nearest zone answers that with minimal payload. If the app later needs
- * a radius search (e.g. "all zones within 5 km"), that can be a new endpoint.
- *
- * Input  : req.query.lat, req.query.lng  (pre-validated by middleware)
- * Output : { success, message, data: { zone, distanceInMeters } }
+ * What this code is doing:
+ * Handles GET /api/danger-zones/nearby?lat=&lng=&radius=. Return nearby DangerZones within radius.
+ * Why it is needed:
+ * Allows mobile users to query danger zones surrounding their current coordinates within a specified radius.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getDangerZonesNearby and dangerZoneService.getNearestDangerZone.
+ * How the frontend consumes this API:
+ * Called by location tracking screens to display proximity safety alerts.
  */
 const getNearbyDangerZone = async (req, res, next) => {
   try {
-    // Validator middleware has already coerced lat/lng to Numbers via .toFloat()
-    const { lat, lng } = req.query;
+    const { lat, lng, radius } = req.query;
+
+    if (radius !== undefined && radius !== '') {
+      const radiusMeters = Number(radius);
+      const zones = await dangerZoneService.getDangerZonesNearby(lat, lng, radiusMeters);
+
+      return res.status(200).json({
+        success: true,
+        message: `Nearby danger zones within ${radiusMeters}m retrieved successfully.`,
+        count: zones.length,
+        data: zones,
+      });
+    }
 
     const zone = await dangerZoneService.getNearestDangerZone(lat, lng);
 
-    // Handle the edge case where the collection is empty
     if (!zone) {
       throw new ApiError(404, 'No danger zones found in the database.');
     }
@@ -89,22 +102,15 @@ const getNearbyDangerZone = async (req, res, next) => {
   }
 };
 
-// ─── GET /api/crime-score?lat=&lng= ───────────────────────────────────────────
-
 /**
- * Purpose of this handler:
- * Expose the Crime Score and Risk Level for the user's current coordinates.
- * This is the primary signal the mobile app uses to colour-code the user's
- * position (green/yellow/orange/red/crimson) in real time.
- *
- * Response design:
- * crimeScore and riskLevel are promoted to the top level for fast access.
- * distanceInMeters tells the app how relevant the score is (a hotspot 20 km
- * away is far less relevant than one 200 m away).
- * hotspot contains full details for the detail drawer/bottom sheet in the app.
- *
- * Input  : req.query.lat, req.query.lng  (pre-validated by middleware)
- * Output : { success, message, data: { crimeScore, riskLevel, distanceInMeters, hotspot } }
+ * What this code is doing:
+ * Handles GET /api/danger-zones/crime-score?lat=&lng=.
+ * Why it is needed:
+ * Surfaces crime score and risk level summary for immediate real-time location coloring.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getCrimeScoreForLocation.
+ * How the frontend consumes this API:
+ * Called by main dashboard to color-code user location badge.
  */
 const getCrimeScore = async (req, res, next) => {
   try {
@@ -126,8 +132,39 @@ const getCrimeScore = async (req, res, next) => {
   }
 };
 
+/**
+ * What this code is doing:
+ * Handles GET /api/danger-zones/:h3Index. Retrieves complete stored details of one H3 cell.
+ * Why it is needed:
+ * Allows frontend to display a detail drawer when a user clicks on an H3 hexagon on the map.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getDangerZoneByH3Index (read-only MongoDB lookup).
+ * How the frontend consumes this API:
+ * Called by frontend map when an H3 hexagon cell is tapped.
+ */
+const getDangerZoneByH3Index = async (req, res, next) => {
+  try {
+    const { h3Index } = req.params;
+
+    const zone = await dangerZoneService.getDangerZoneByH3Index(h3Index);
+
+    if (!zone) {
+      throw new ApiError(404, `DangerZone or H3 cell '${h3Index}' not found in the database.`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `H3 cell '${h3Index}' details retrieved successfully.`,
+      data: zone,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllDangerZones,
   getNearbyDangerZone,
   getCrimeScore,
+  getDangerZoneByH3Index,
 };
