@@ -22,10 +22,11 @@ const buildEnvironmentalScore = ({ weatherRisk = {}, floodRisk = {}, newsRisk = 
     Math.round((weatherScore * effectiveWeatherWeight) + (floodScore * effectiveFloodWeight) + (newsScore * effectiveNewsWeight))
   );
 
-  let riskLevel = 'LOW';
-  if (compositeScore >= 75) riskLevel = 'CRITICAL';
-  else if (compositeScore >= 55) riskLevel = 'HIGH';
-  else if (compositeScore >= 30) riskLevel = 'MEDIUM';
+  let riskLevel = 'SAFE';
+  if (compositeScore >= 80) riskLevel = 'EXTREME';
+  else if (compositeScore >= 60) riskLevel = 'HIGH';
+  else if (compositeScore >= 40) riskLevel = 'MODERATE';
+  else if (compositeScore >= 20) riskLevel = 'LOW';
 
   const reasons = [
     weatherRisk.reason || 'Weather conditions appear stable.',

@@ -99,26 +99,32 @@ const dangerZoneSchema = new mongoose.Schema(
       max: [100, 'Crime score cannot exceed 100'],
     },
 
-    // Human-readable danger classification derived from crimeScore thresholds:
-    //   Safe     →  0 – 19.99
-    //   Low      → 20 – 39.99
-    //   Moderate → 40 – 59.99
-    //   High     → 60 – 79.99
-    //   Extreme  → 80 – 100
+    // Standardized risk classification derived from totalRiskScore thresholds:
+    //   SAFE      →  0 – 19.99
+    //   LOW       → 20 – 39.99
+    //   MODERATE  → 40 – 59.99
+    //   HIGH      → 60 – 79.99
+    //   EXTREME   → 80 – 100
     riskLevel: {
       type: String,
       required: [true, 'Risk level is required'],
+      set: (v) => (typeof v === 'string' ? v.toUpperCase() : v),
       enum: {
-        values: ['Safe', 'Low', 'Moderate', 'High', 'Extreme'],
-        message: 'Risk level must be one of: Safe, Low, Moderate, High, Extreme',
+        values: ['SAFE', 'LOW', 'MODERATE', 'HIGH', 'EXTREME', 'Safe', 'Low', 'Moderate', 'High', 'Extreme'],
+        message: 'Risk level must be one of: SAFE, LOW, MODERATE, HIGH, EXTREME',
       },
-      index: true, // Frequently filtered in app queries (e.g., "show only High/Extreme zones")
+      index: true, // Frequently filtered in app queries
+    },
+
+    // Total composite normalized risk score calculated by RiskEngineService (0–100)
+    totalRiskScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'Total risk score cannot be below 0'],
+      max: [100, 'Total risk score cannot exceed 100'],
     },
 
     // ─── Phase 3 & Phase 4 Dynamic Risk Fields ──────────────────────────────────
-    // What the code is doing: Adding dynamic score fields for Crowd and Environmental modules.
-    // Why it is required: Allows DangerZone documents to store dynamic crowd and environmental scores.
-    // Which existing Phase 1 or Phase 2 implementation is being reused: Extends existing Phase 2 DangerZone schema.
     h3Index: {
       type: String,
       index: true,
@@ -135,6 +141,24 @@ const dangerZoneSchema = new mongoose.Schema(
       default: 0,
       min: [0, 'Weather score cannot be below 0'],
       max: [100, 'Weather score cannot exceed 100'],
+    },
+    newsScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'News score cannot be below 0'],
+      max: [100, 'News score cannot exceed 100'],
+    },
+    communityScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'Community score cannot be below 0'],
+      max: [100, 'Community score cannot exceed 100'],
+    },
+    ewsScore: {
+      type: Number,
+      default: 0,
+      min: [0, 'EWS score cannot be below 0'],
+      max: [100, 'EWS score cannot exceed 100'],
     },
     environmentalScore: {
       type: Number,

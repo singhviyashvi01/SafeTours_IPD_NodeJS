@@ -1,4 +1,5 @@
 const DangerZone = require('../models/DangerZone');
+const riskEngineService = require('./riskEngine.service');
 const logger = require('../utils/logger');
 
 /**
@@ -171,13 +172,25 @@ class DangerZoneService {
         return null;
       }
 
-      // Merge Safety: Atomic $set update to modify ONLY crowdScore, h3Index, and updatedAt.
+      // Calculate composite risk via centralized Risk Engine using all existing sub-scores
+      const riskResult = riskEngineService.calculateRisk({
+        crimeScore: nearestZone.crimeScore || 0,
+        weatherScore: nearestZone.weatherScore || 0,
+        newsScore: nearestZone.newsScore || 0,
+        crowdScore: Number(crowdScore),
+        communityScore: nearestZone.communityScore || 0,
+        ewsScore: nearestZone.ewsScore || 0,
+      });
+
+      // Atomic $set: updates crowdScore, h3Index, totalRiskScore, riskLevel, and updatedAt.
       // Never overwrites crimeScore, weatherScore, environmentalScore, or infraScore.
       const updatedZone = await DangerZone.findByIdAndUpdate(
         nearestZone._id,
         {
           $set: {
             crowdScore: Number(crowdScore),
+            totalRiskScore: riskResult.totalRiskScore,
+            riskLevel: riskResult.level,
             ...(h3Index && { h3Index }),
             updatedAt: new Date(),
           },
@@ -186,7 +199,7 @@ class DangerZoneService {
       ).lean();
 
       logger.info(
-        `[DangerZoneService.updateCrowdScore] Updated DangerZone #${nearestZone.hotspotId} crowdScore to ${crowdScore}.`
+        `[DangerZoneService.updateCrowdScore] Updated DangerZone #${nearestZone.hotspotId} crowdScore to ${crowdScore}, totalRiskScore=${riskResult.totalRiskScore}, level=${riskResult.level}.`
       );
       return updatedZone;
     } catch (error) {
@@ -224,17 +237,31 @@ class DangerZoneService {
       const existingMatchingZones = filter.h3Index ? await DangerZone.find(filter).lean() : [];
 
       if (existingMatchingZones.length > 0) {
+        // Build per-zone risk calculations and updateMany using a shared environmental update
+        // For multi-zone updateMany: use a representative zone's scores as baseline
+        const representativeZone = existingMatchingZones[0];
+        const riskResult = riskEngineService.calculateRisk({
+          crimeScore: representativeZone.crimeScore || 0,
+          weatherScore: Number(weatherScore),
+          newsScore: representativeZone.newsScore || 0,
+          crowdScore: representativeZone.crowdScore || 0,
+          communityScore: representativeZone.communityScore || 0,
+          ewsScore: representativeZone.ewsScore || 0,
+        });
+
         await DangerZone.updateMany(filter, {
           $set: {
             weatherScore: Number(weatherScore),
             environmentalScore: Number(environmentalScore),
+            totalRiskScore: riskResult.totalRiskScore,
+            riskLevel: riskResult.level,
             lastWeatherUpdate: new Date(),
             updatedAt: new Date(),
           },
         });
         const updatedZones = await DangerZone.find(filter).lean();
         logger.info(
-          `[DangerZoneService.updateEnvironmentalScore] Updated ${updatedZones.length} affected DangerZone documents.`
+          `[DangerZoneService.updateEnvironmentalScore] Updated ${updatedZones.length} affected DangerZone documents. TotalRiskScore=${riskResult.totalRiskScore}, Level=${riskResult.level}`
         );
         return updatedZones;
       }
@@ -246,12 +273,23 @@ class DangerZoneService {
         return [];
       }
 
+      const riskResult = riskEngineService.calculateRisk({
+        crimeScore: nearestZone.crimeScore || 0,
+        weatherScore: Number(weatherScore),
+        newsScore: nearestZone.newsScore || 0,
+        crowdScore: nearestZone.crowdScore || 0,
+        communityScore: nearestZone.communityScore || 0,
+        ewsScore: nearestZone.ewsScore || 0,
+      });
+
       const updatedZone = await DangerZone.findByIdAndUpdate(
         nearestZone._id,
         {
           $set: {
             weatherScore: Number(weatherScore),
             environmentalScore: Number(environmentalScore),
+            totalRiskScore: riskResult.totalRiskScore,
+            riskLevel: riskResult.level,
             lastWeatherUpdate: new Date(),
             ...(h3Index && { h3Index }),
             updatedAt: new Date(),
@@ -261,7 +299,7 @@ class DangerZoneService {
       ).lean();
 
       logger.info(
-        `[DangerZoneService.updateEnvironmentalScore] Updated DangerZone #${nearestZone.hotspotId} environmentalScore to ${environmentalScore}.`
+        `[DangerZoneService.updateEnvironmentalScore] Updated DangerZone #${nearestZone.hotspotId} weatherScore=${weatherScore}, totalRiskScore=${riskResult.totalRiskScore}, level=${riskResult.level}.`
       );
       return [updatedZone];
     } catch (error) {

@@ -9,6 +9,7 @@ const { calculateCrowdScore } = require('../crowd/crowdScore.service');
 const { getLatestNews } = require('../news/news.service');
 const { buildNewsRisk } = require('../news/newsRisk.service');
 const { incidentCategories } = require('../../config/communityConfig');
+const riskEngineService = require('../riskEngine.service');
 const logger = require('../../utils/logger');
 
 // Defensive helper to convert lat/lng to H3 index in both v3 and v4 of h3-js
@@ -67,18 +68,26 @@ async function updateDynamicScoresInBackground(h3CellId, lat, lng) {
       logger.warn(`[GridCellService.background] News fetch failed for H3 cell ${h3CellId}: ${err.message}`);
     }
 
-    // 4. Update the GridCell record in Mongoose
+    // 4. Update the GridCell record in Mongoose using centralized Risk Engine
     const cell = await GridCell.findOne({ h3CellId });
     if (cell) {
       cell.weatherScore = weatherScore;
       cell.crowdScore = crowdScore;
       cell.newsScore = newsScore;
-      cell.totalRiskScore = Math.min(
-        500,
-        cell.crimeScore + cell.communityScore + crowdScore + weatherScore + newsScore
-      );
+
+      const riskResult = riskEngineService.calculateRisk({
+        crimeScore: cell.crimeScore || 0,
+        weatherScore,
+        newsScore,
+        crowdScore,
+        communityScore: cell.communityScore || 0,
+        ewsScore: cell.ewsScore || 0,
+      });
+
+      cell.totalRiskScore = riskResult.totalRiskScore;
+      cell.level = riskResult.level;
       await cell.save();
-      logger.info(`[GridCellService.background] Updated dynamic scores for cell ${h3CellId}: Weather=${weatherScore}, Crowd=${crowdScore}, News=${newsScore}`);
+      logger.info(`[GridCellService.background] Updated dynamic scores for cell ${h3CellId}: Weather=${weatherScore}, Crowd=${crowdScore}, News=${newsScore}, TotalRisk=${riskResult.totalRiskScore}, Level=${riskResult.level}`);
     }
   } catch (err) {
     logger.error(`[GridCellService.background] Unexpected background update failure for cell ${h3CellId}`, err);
@@ -143,13 +152,17 @@ class GridCellService {
       const weatherScore = existingCell ? existingCell.weatherScore : 0;
       const newsScore = existingCell ? existingCell.newsScore : 0;
 
-      // 6. Calculate composite total risk score
-      const totalRiskScore = Math.min(
-        500,
-        crimeScore + crowdScore + weatherScore + newsScore + communityScore
-      );
+      // 6. Calculate composite risk score via centralized Risk Score Engine
+      const riskResult = riskEngineService.calculateRisk({
+        crimeScore,
+        weatherScore,
+        newsScore,
+        crowdScore,
+        communityScore,
+        ewsScore: existingCell ? (existingCell.ewsScore || 0) : 0,
+      });
 
-      // 7. Upsert GridCell cache
+      // 7. Upsert GridCell cache with normalized totalRiskScore and risk level
       const updatedCell = await GridCell.findOneAndUpdate(
         { h3CellId },
         {
@@ -159,12 +172,14 @@ class GridCellService {
           weatherScore,
           newsScore,
           communityScore,
-          totalRiskScore,
+          ewsScore: existingCell ? (existingCell.ewsScore || 0) : 0,
+          totalRiskScore: riskResult.totalRiskScore,
+          level: riskResult.level,
         },
         { upsert: true, new: true }
       );
 
-      logger.info(`[GridCellService] Recalculated cell ${h3CellId}: Crime=${crimeScore}, Community=${communityScore}, Total=${totalRiskScore}`);
+      logger.info(`[GridCellService] Recalculated cell ${h3CellId}: Crime=${crimeScore}, Community=${communityScore}, TotalRisk=${riskResult.totalRiskScore}, Level=${riskResult.level}`);
 
       // 8. Fire background worker to fetch dynamic API scores if they are missing
       // or to refresh them periodically.

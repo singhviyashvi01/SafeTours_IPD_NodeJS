@@ -175,6 +175,13 @@ const gridCellSchema = new mongoose.Schema(
       max: 100,
     },
 
+    ewsScore: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
+
     totalRisk: {
       type: Number,
       default: 0,
@@ -184,7 +191,7 @@ const gridCellSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
-      max: 500, // Sum of 5 different risk scores, each 0-100.
+      max: 100, // Normalized composite score (0-100) calculated by RiskEngineService
     },
 
     level: {
