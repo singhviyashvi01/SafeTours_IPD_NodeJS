@@ -1,10 +1,10 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const ApiError = require('../utils/apiError');
 
 /**
  * Fetches recent news articles from the configured News API.
- * Uses NEWS_API_URL and NEWSDATA_API_KEY. Supports multiple potential API formats
- * (like NewsData.io results or NewsAPI articles) for maximum interoperability.
+ * Uses NEWS_API_URL and NEWSDATA_API_KEY. Supports NewsData.io API format.
  *
  * @param {string} [query='Mumbai'] - The search keyword query.
  * @returns {Promise<Object[]>} A list of normalized and deduplicated news articles.
@@ -15,25 +15,40 @@ async function fetchNews(query = 'Mumbai') {
 
   if (!apiKey) {
     logger.error('[newsService] NEWSDATA_API_KEY is not defined in environment variables.');
-    throw new Error('News API key is not configured.');
+    throw new ApiError(500, 'NEWSDATA_API_KEY is not defined in environment variables.');
   }
 
-  logger.info(`[newsService] Requesting news from ${apiUrl} for query "${query}"...`);
+  // Construct request parameters dynamically
+  const rawParams = {
+    apikey: apiKey,
+    q: query && typeof query === 'string' ? query.trim() : 'Mumbai',
+    country: 'in',
+    language: 'en',
+    size: 10, // NewsData.io free plan allows up to 10 articles (size > 10 causes HTTP 422 UnsupportedFilter)
+  };
+
+  const params = {};
+  for (const [key, value] of Object.entries(rawParams)) {
+    if (value !== undefined && value !== null && value !== '') {
+      params[key] = value;
+    }
+  }
+
+  // Create masked params for safe logging (hides secret API key)
+  const maskedParams = {
+    ...params,
+    apikey: apiKey ? `${apiKey.substring(0, 5)}***${apiKey.substring(apiKey.length - 4)}` : undefined,
+  };
+
+  logger.info(`[newsService] Requesting news from ${apiUrl}`);
+  logger.info(`[newsService] Request parameters: ${JSON.stringify(maskedParams)}`);
 
   try {
     const response = await axios.get(apiUrl, {
-      params: {
-        apikey: apiKey,      // NewsData.io format
-        apiKey: apiKey,      // NewsAPI.org format
-        q: query,
-        country: 'in',
-        language: 'en',
-        size: 50,
-      },
+      params,
       timeout: 10000, // 10s timeout
     });
 
-    // Support both NewsData.io (results) and NewsAPI.org (articles) response structures
     const data = response?.data;
     let rawArticles = [];
 
@@ -74,8 +89,42 @@ async function fetchNews(query = 'Mumbai') {
     logger.info(`[newsService] Normalized to ${normalizedArticles.length} unique articles.`);
     return normalizedArticles;
   } catch (error) {
-    logger.error(`[newsService] Failed to fetch news: ${error.message}`);
-    throw error;
+    logger.error(`[newsService] Failed request to ${apiUrl}`);
+    logger.error(`[newsService] Request parameters (masked): ${JSON.stringify(maskedParams)}`);
+
+    if (error.response) {
+      logger.error(`[newsService] NewsData.io API Error Status: ${error.response.status}`);
+      logger.error(`[newsService] NewsData.io API Response Body: ${JSON.stringify(error.response.data)}`);
+    } else {
+      logger.error(`[newsService] NewsData.io Network/Error Message: ${error.message}`);
+    }
+
+    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+      throw new ApiError(504, 'NewsData.io request timed out.');
+    }
+
+    const status = error.response?.status;
+    const apiMessage = error.response?.data?.results?.message || error.response?.data?.message || error.message;
+
+    switch (status) {
+      case 400:
+        throw new ApiError(400, `NewsData.io Bad Request: ${apiMessage}`);
+      case 401:
+        throw new ApiError(401, 'NewsData.io Unauthorized: Invalid or missing API key.');
+      case 403:
+        throw new ApiError(403, 'NewsData.io Forbidden: Access limit reached or access denied.');
+      case 404:
+        throw new ApiError(404, 'NewsData.io Not Found: Requested resource or endpoint not found.');
+      case 422:
+        throw new ApiError(422, `NewsData.io Unprocessable Entity: ${apiMessage}`);
+      case 429:
+        throw new ApiError(429, 'NewsData.io Rate Limit Exceeded: Too many requests.');
+      default:
+        if (status >= 500) {
+          throw new ApiError(502, 'NewsData.io service is temporarily unavailable.');
+        }
+        throw new ApiError(status || 500, `News API error: ${apiMessage}`);
+    }
   }
 }
 
