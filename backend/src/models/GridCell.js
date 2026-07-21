@@ -196,7 +196,7 @@ const gridCellSchema = new mongoose.Schema(
 
     level: {
       type: String,
-      enum: ['SAFE', 'LOW', 'MODERATE', 'HIGH', 'EXTREME'],
+      enum: ['SAFE', 'LOW', 'MODERATE', 'MEDIUM', 'HIGH', 'EXTREME'],
       default: 'SAFE',
     },
   },

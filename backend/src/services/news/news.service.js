@@ -10,6 +10,7 @@ const ApiError = require('../../utils/apiError');
  * be scored for risk. This service isolates the external API call and returns only a
  * compact field set that the frontend can display as incident cards.
  */
+
 const NEWS_API_BASE_URL = 'https://newsdata.io/api/1/news';
 
 const normalizeArticles = (rawArticles = []) => {
@@ -29,54 +30,94 @@ const normalizeArticles = (rawArticles = []) => {
 
 const getLatestNews = async (location = 'Mumbai') => {
   const apiKey = process.env.NEWSDATA_API_KEY;
+
   if (!apiKey) {
-    const error = new ApiError(500, 'NewsData.io API key is not configured.');
-    throw error;
+    throw new ApiError(500, 'NEWSDATA_API_KEY is missing in the .env file.');
   }
 
   const queryLocation = String(location || 'Mumbai').trim();
+
   if (!queryLocation) {
-    const error = new ApiError(400, 'Location is required for news lookup.');
-    throw error;
+    throw new ApiError(400, 'Location is required for news lookup.');
   }
 
   try {
+    console.log('==============================');
+    console.log('Fetching NewsData.io Articles');
+    console.log('Location:', queryLocation);
+    console.log('API Key Present:', !!apiKey);
+    console.log('==============================');
+
     const response = await axios.get(NEWS_API_BASE_URL, {
       params: {
         apikey: apiKey,
         q: queryLocation,
         country: 'in',
         language: 'en',
-        size: 8,
       },
       timeout: 10000,
     });
 
-    const results = Array.isArray(response?.data?.results) ? response.data.results : [];
+    const results = Array.isArray(response?.data?.results)
+      ? response.data.results
+      : [];
+
+    console.log(`Fetched ${results.length} articles from NewsData.io`);
+
     return normalizeArticles(results);
   } catch (error) {
+    console.log('\n========== NEWSDATA API ERROR ==========');
+    console.log('Status:', error.response?.status);
+    console.log('Message:', error.message);
+
+    if (error.response?.data) {
+      console.log(
+        'Response:',
+        JSON.stringify(error.response.data, null, 2)
+      );
+    }
+
+    console.log('========================================\n');
+
     if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      const timeoutError = new ApiError(504, 'News API request timed out.');
-      throw timeoutError;
+      throw new ApiError(504, 'NewsData.io request timed out.');
     }
 
     if (error.response?.status === 401) {
-      const invalidApiError = new ApiError(401, 'NewsData.io API key is invalid or unauthorized.');
-      throw invalidApiError;
+      throw new ApiError(
+        401,
+        'Invalid or unauthorized NewsData.io API key.'
+      );
     }
 
-    if (error.response?.status >= 500) {
-      const serverError = new ApiError(502, 'News service is temporarily unavailable.');
-      throw serverError;
+    if (error.response?.status === 422) {
+      throw new ApiError(
+        422,
+        'NewsData.io rejected the request. Check the API response printed above for the exact reason.'
+      );
     }
 
     if (error.response?.status === 400) {
-      const badRequest = new ApiError(400, 'News request could not be processed.');
-      throw badRequest;
+      throw new ApiError(
+        400,
+        'Invalid request sent to NewsData.io.'
+      );
     }
 
-    const fallbackError = new ApiError(error.response?.status || 500, error.message || 'Unable to fetch news data.');
-    throw fallbackError;
+    if (error.response?.status >= 500) {
+      throw new ApiError(
+        502,
+        'NewsData.io service is temporarily unavailable.'
+      );
+    }
+
+    throw new ApiError(
+      error.response?.status || 500,
+      error.response?.data?.results?.message ||
+        error.response?.data?.message ||
+        error.message ||
+        'Unable to fetch news from NewsData.io.'
+    );
   }
 };
 

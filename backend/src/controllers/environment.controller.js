@@ -5,6 +5,7 @@ const { buildWeatherRisk, buildFloodRisk } = require('../services/weather/floodR
 const { buildEnvironmentalScore } = require('../utils/environmentalScore');
 const h3GridService = require('../services/h3GridService');
 const dangerZoneService = require('../services/dangerZoneService');
+const riskEngine = require('../services/riskEngine');
 const ApiError = require('../utils/apiError');
 
 /**
@@ -142,6 +143,11 @@ const getEnvironmentalScore = async (req, res, next) => {
       environmentalScoreVal,
       h3Index,
       affectedH3Cells
+    );
+
+    await riskEngine.updateGridCellScores(
+      { $or: [{ h3Index: { $in: affectedH3Cells } }, { h3CellId: { $in: affectedH3Cells } }] },
+      { weatherScore }
     );
 
     return res.status(200).json({

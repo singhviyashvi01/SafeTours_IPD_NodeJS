@@ -68,8 +68,9 @@ async function updateDynamicScoresInBackground(h3CellId, lat, lng) {
       logger.warn(`[GridCellService.background] News fetch failed for H3 cell ${h3CellId}: ${err.message}`);
     }
 
-    // 4. Update the GridCell record in Mongoose using centralized Risk Engine
-    const cell = await GridCell.findOne({ h3CellId });
+    // 4. Update the GridCell record in Mongoose using centralized Risk Engine.
+    // Use $or to match by either h3Index or h3CellId for compatibility.
+    const cell = await GridCell.findOne({ $or: [{ h3Index: h3CellId }, { h3CellId }] });
     if (cell) {
       cell.weatherScore = weatherScore;
       cell.crowdScore = crowdScore;
@@ -146,8 +147,9 @@ class GridCellService {
         logger.warn(`[GridCellService] Crime score fetch failed for H3 cell ${h3CellId}: ${err.message}`);
       }
 
-      // 5. Retrieve cached dynamic scores (Crowd, Weather, News) if available
-      const existingCell = await GridCell.findOne({ h3CellId });
+      // 5. Retrieve cached dynamic scores (Crowd, Weather, News) if available.
+      // Use $or to match by either h3Index or h3CellId for compatibility.
+      const existingCell = await GridCell.findOne({ $or: [{ h3Index: h3CellId }, { h3CellId }] });
       const crowdScore = existingCell ? existingCell.crowdScore : 0;
       const weatherScore = existingCell ? existingCell.weatherScore : 0;
       const newsScore = existingCell ? existingCell.newsScore : 0;

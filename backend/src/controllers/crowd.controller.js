@@ -2,6 +2,7 @@ const { fetchNearbyPlaces } = require('../services/crowd/geoapify.service');
 const { calculateCrowdScore } = require('../services/crowd/crowdScore.service');
 const h3GridService = require('../services/h3GridService');
 const dangerZoneService = require('../services/dangerZoneService');
+const riskEngine = require('../services/riskEngine');
 const ApiError = require('../utils/apiError');
 
 /**
@@ -92,6 +93,11 @@ const getCrowdScore = async (req, res, next) => {
       longitude,
       crowdData.crowdScore,
       h3Index
+    );
+
+    await riskEngine.updateGridCellScores(
+      { $or: [{ h3Index }, { h3CellId: h3Index }] },
+      { crowdScore: crowdData.crowdScore }
     );
 
     return res.status(200).json({

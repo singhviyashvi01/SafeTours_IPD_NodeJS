@@ -1,5 +1,6 @@
 const h3 = require('h3-js');
 const GridCell = require('../../models/GridCell');
+const riskEngine = require('../../services/riskEngine');
 const logger = require('../../utils/logger');
 
 /**
@@ -98,6 +99,10 @@ class CrimeGridService {
     // Note: We use GridCell model directly
     try {
       const result = await GridCell.bulkWrite(bulkOps, { ordered: false });
+      await riskEngine.updateGridCellScores(
+        { h3Index: { $in: [...h3ScoreMap.keys()] } },
+        {}
+      );
       logger.info(`[CrimeGridService.mapHotspotsToGrid] Updated: ${result.modifiedCount} GridCell documents (Matched: ${result.matchedCount}).`);
       // Return modified count. If matchedCount > modifiedCount, some cells already had the exact same score.
       return result.matchedCount; 
