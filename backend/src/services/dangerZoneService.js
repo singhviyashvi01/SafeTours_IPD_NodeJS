@@ -256,6 +256,7 @@ class DangerZoneService {
             totalRiskScore: riskResult.totalRiskScore,
             riskLevel: riskResult.level,
             lastWeatherUpdate: new Date(),
+            lastNewsUpdate: new Date(),
             updatedAt: new Date(),
           },
         });
@@ -291,6 +292,7 @@ class DangerZoneService {
             totalRiskScore: riskResult.totalRiskScore,
             riskLevel: riskResult.level,
             lastWeatherUpdate: new Date(),
+            lastNewsUpdate: new Date(),
             ...(h3Index && { h3Index }),
             updatedAt: new Date(),
           },

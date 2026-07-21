@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getEnvironmentNews, getFloodRisk, getEnvironmentalScore } = require('../controllers/environment.controller');
+const { getEnvironmentNews, getFloodRisk, getEnvironmentalScore, triggerDynamicRiskUpdate } = require('../controllers/environment.controller');
 
 /**
  * Purpose of this route file:
@@ -13,5 +13,6 @@ const { getEnvironmentNews, getFloodRisk, getEnvironmentalScore } = require('../
 router.get('/news', getEnvironmentNews);
 router.get('/flood', getFloodRisk);
 router.get('/score', getEnvironmentalScore);
+router.post('/trigger-dynamic-update', triggerDynamicRiskUpdate);
 
 module.exports = router;

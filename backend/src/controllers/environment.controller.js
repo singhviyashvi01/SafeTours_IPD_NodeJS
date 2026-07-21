@@ -172,8 +172,36 @@ const getEnvironmentalScore = async (req, res, next) => {
   }
 };
 
+/**
+ * Purpose of this function:
+ * Manually trigger one run of the Dynamic Risk Update background job on demand.
+ *
+ * What the code is doing:
+ * Invokes processDynamicRiskUpdates() from dynamicRiskScheduler.js.
+ * Why it is required:
+ * Enables manual Postman API testing and administrative trigger of dynamic risk updates.
+ * Which existing service is being reused:
+ * Reuses dynamicRiskScheduler.processDynamicRiskUpdates().
+ * How it helps frontend integration:
+ * Allows developers and QA to force an instant background refresh during testing.
+ */
+const triggerDynamicRiskUpdate = async (req, res, next) => {
+  try {
+    const { processDynamicRiskUpdates } = require('../scheduler/dynamicRiskScheduler');
+    await processDynamicRiskUpdates();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Dynamic Risk Update cycle triggered and completed successfully.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getEnvironmentNews,
   getFloodRisk,
   getEnvironmentalScore,
+  triggerDynamicRiskUpdate,
 };

@@ -26,6 +26,13 @@ const startServer = async () => {
     const { startNewsScheduler } = require('./scheduler/newsScheduler');
     startNewsScheduler();
 
+    // What is happening: Register and launch the Dynamic Risk Update background scheduler.
+    // Why it is required: Automatically refreshes weather, flood, and news risk scores in DangerZone MongoDB documents periodically.
+    // Which existing service is being reused: Reuses dynamicRiskScheduler.js orchestration module.
+    // How it helps frontend integration: Guarantees that DangerZone records returned to the frontend stay up to date asynchronously.
+    const { startDynamicRiskScheduler } = require('./scheduler/dynamicRiskScheduler');
+    startDynamicRiskScheduler();
+
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });

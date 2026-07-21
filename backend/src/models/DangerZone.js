@@ -166,7 +166,15 @@ const dangerZoneSchema = new mongoose.Schema(
       min: [0, 'Environmental score cannot be below 0'],
       max: [100, 'Environmental score cannot exceed 100'],
     },
+    // What is happening: Timestamp field tracking when news intelligence was last refreshed.
+    // Why it is required: Enables the Dynamic Risk Update Service to log news refresh times.
+    // Which existing service is being reused: Extends existing Phase 2 & Phase 4 DangerZone Mongoose schema.
+    // How it helps frontend integration: Allows frontend cards to display "Last news update: X minutes ago".
     lastWeatherUpdate: {
+      type: Date,
+      default: null,
+    },
+    lastNewsUpdate: {
       type: Date,
       default: null,
     },
