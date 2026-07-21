@@ -3,18 +3,18 @@ const logger = require('../utils/logger');
 
 /**
  * Fetches recent news articles from the configured News API.
- * Uses NEWS_API_URL and NEWS_API_KEY. Supports multiple potential API formats
+ * Uses NEWS_API_URL and NEWSDATA_API_KEY. Supports multiple potential API formats
  * (like NewsData.io results or NewsAPI articles) for maximum interoperability.
  *
  * @param {string} [query='Mumbai'] - The search keyword query.
  * @returns {Promise<Object[]>} A list of normalized and deduplicated news articles.
  */
 async function fetchNews(query = 'Mumbai') {
-  const apiKey = process.env.NEWS_API_KEY;
+  const apiKey = process.env.NEWSDATA_API_KEY;
   const apiUrl = process.env.NEWS_API_URL || 'https://newsdata.io/api/1/news';
 
   if (!apiKey) {
-    logger.error('[newsService] NEWS_API_KEY is not defined in environment variables.');
+    logger.error('[newsService] NEWSDATA_API_KEY is not defined in environment variables.');
     throw new Error('News API key is not configured.');
   }
 
