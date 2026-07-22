@@ -7,6 +7,7 @@ const {
   getNearbyDangerZone,
   getCrimeScore,
   getDangerZoneByH3Index,
+  getLocationRisk,
 } = require('../controllers/dangerZone.controller');
 
 const {
@@ -72,10 +73,21 @@ router.get(
   getCrimeScore
 );
 
+// ─── GET /api/danger-zones/location-risk ──────────────────────────────
+/**
+ * Returns Safety levels and scores for coordinate.
+ */
+router.get(
+  '/location-risk',
+  validateCoordinateRules,
+  validateCoordinateRequest,
+  getLocationRisk
+);
+
 // ─── GET /api/danger-zones/:h3Index ───────────────────────────────────────────
 /**
  * Returns complete stored details of one H3 cell by its 15-character hex ID.
- * Declared AFTER /nearby and /crime-score so Express does not accidentally match
+ * Declared AFTER /nearby, /crime-score, and /location-risk so Express does not accidentally match
  * literal endpoints like "nearby" as an `:h3Index` parameter.
  */
 router.get(

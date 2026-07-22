@@ -451,6 +451,45 @@ class DangerZoneService {
       throw new Error('Failed to update environmental score in database.');
     }
   }
+
+  /**
+   * What this code is doing:
+   * Resolves coordinates to an H3 index and retrieves the corresponding DangerZone document.
+   * Why it is needed:
+   * Enables Phase 5 — Location Risk Service to return safety metrics for a user's current location.
+   * Which existing module is being reused:
+   * Reuses h3GridService.latLngToH3 and the DangerZone mongoose model.
+   *
+   * @param {number|string} latitude - WGS84 latitude
+   * @param {number|string} longitude - WGS84 longitude
+   * @returns {Promise<Object|null>} DangerZone document or null if not found.
+   */
+  async getLocationRisk(latitude, longitude) {
+    try {
+      const h3GridService = require('./h3GridService');
+      
+      // Step 2: Convert latitude and longitude into H3 index (resolution 9)
+      const h3Index = h3GridService.latLngToH3(latitude, longitude, 9);
+      
+      logger.info(`[DangerZoneService.getLocationRisk] Coordinate [${latitude}, ${longitude}] mapped to H3 index '${h3Index}'.`);
+
+      // Step 3: Find corresponding DangerZone document in MongoDB
+      const zone = await DangerZone.findOne({ h3Index })
+        .select('-__v')
+        .lean();
+
+      if (!zone) {
+        logger.warn(`[DangerZoneService.getLocationRisk] No DangerZone found for H3 index '${h3Index}'.`);
+        return null;
+      }
+
+      logger.info(`[DangerZoneService.getLocationRisk] Successfully retrieved DangerZone for H3 index '${h3Index}'.`);
+      return zone;
+    } catch (error) {
+      logger.error(`[DangerZoneService.getLocationRisk] Lookup failed for coordinates [${latitude}, ${longitude}].`, error);
+      throw new Error('Failed to retrieve location risk details from the database.');
+    }
+  }
 }
 
 // Export as a singleton — matches LocationService pattern

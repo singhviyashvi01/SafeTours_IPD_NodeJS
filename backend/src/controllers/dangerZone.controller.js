@@ -162,9 +162,40 @@ const getDangerZoneByH3Index = async (req, res, next) => {
   }
 };
 
+/**
+ * What this code is doing:
+ * Handles GET /api/danger-zones/location-risk?lat=&lng=.
+ * Why it is needed:
+ * Surfaces the safety metrics (crime, weather, EWS scores, total risk, and level) for the user's resolved location cell.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getLocationRisk and project-wide ApiError.
+ * How the frontend consumes this API:
+ * Called by location widgets or maps to query safety details dynamically.
+ */
+const getLocationRisk = async (req, res, next) => {
+  try {
+    const { lat, lng } = req.query;
+
+    const result = await dangerZoneService.getLocationRisk(lat, lng);
+
+    if (!result) {
+      throw new ApiError(404, `No DangerZone or H3 cell found for location [${lat}, ${lng}].`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Location risk details retrieved successfully.',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllDangerZones,
   getNearbyDangerZone,
   getCrimeScore,
   getDangerZoneByH3Index,
+  getLocationRisk,
 };
