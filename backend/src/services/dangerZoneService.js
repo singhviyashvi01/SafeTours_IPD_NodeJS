@@ -490,6 +490,68 @@ class DangerZoneService {
       throw new Error('Failed to retrieve location risk details from the database.');
     }
   }
+
+  /**
+   * What this code is doing:
+   * Resolves coordinates to an H3 index, compares with the optional previous H3 index to detect cell changes,
+   * and retrieves updated danger information if the cell changed (or no previous index is provided).
+   * Why it is needed:
+   * Enables Phase 6 — Live Risk Refresh to dynamically track user cell entry and avoid redundant MongoDB work.
+   * Which existing module is being reused:
+   * Reuses h3GridService.latLngToH3 and the existing getLocationRisk method.
+   *
+   * @param {number|string} latitude - WGS84 latitude
+   * @param {number|string} longitude - WGS84 longitude
+   * @param {string} [previousH3Index] - Optional previously resolved H3 cell index string
+   * @returns {Promise<Object|null>} DangerZone risk document or lightweight status indicating cell unchanged.
+   */
+  async getLiveRisk(latitude, longitude, previousH3Index) {
+    try {
+      const h3GridService = require('./h3GridService');
+      const currentH3Index = h3GridService.latLngToH3(latitude, longitude, 9);
+
+      // Detect if user is still in the same cell
+      if (previousH3Index && currentH3Index === previousH3Index.trim()) {
+        logger.info(`[DangerZoneService.getLiveRisk] User is still in the same H3 cell '${currentH3Index}'. Avoiding database query.`);
+        return {
+          h3Index: currentH3Index,
+          cellChanged: false,
+        };
+      }
+
+      logger.info(`[DangerZoneService.getLiveRisk] H3 cell change detected: '${previousH3Index}' -> '${currentH3Index}' (or first time load). Querying database.`);
+
+      // Retrieve full updated DangerZone details from Phase 5 service logic
+      const zone = await this.getLocationRisk(latitude, longitude);
+
+      if (!zone) {
+        return null;
+      }
+
+      // Return the full updated risk information with cellChanged = true
+      return {
+        h3Index: zone.h3Index,
+        cellChanged: true,
+        crimeScore: zone.crimeScore,
+        crowdScore: zone.crowdScore,
+        weatherScore: zone.weatherScore,
+        environmentalScore: zone.environmentalScore,
+        newsScore: zone.newsScore,
+        communityScore: zone.communityScore,
+        ewsScore: zone.ewsScore,
+        totalRiskScore: zone.totalRiskScore,
+        riskLevel: zone.riskLevel,
+        location: zone.location,
+        createdAt: zone.createdAt,
+        updatedAt: zone.updatedAt,
+        lastWeatherUpdate: zone.lastWeatherUpdate,
+        lastNewsUpdate: zone.lastNewsUpdate,
+      };
+    } catch (error) {
+      logger.error(`[DangerZoneService.getLiveRisk] Live risk calculation failed for coordinates [${latitude}, ${longitude}].`, error);
+      throw error;
+    }
+  }
 }
 
 // Export as a singleton — matches LocationService pattern

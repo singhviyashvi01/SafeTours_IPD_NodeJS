@@ -192,10 +192,41 @@ const getLocationRisk = async (req, res, next) => {
   }
 };
 
+/**
+ * What this code is doing:
+ * Handles GET /api/danger-zones/live-risk?lat=&lng=&previousH3Index=.
+ * Why it is needed:
+ * Keeps the user's safety details updated while moving, preventing unnecessary database work if cell remains unchanged.
+ * Which existing module is being reused:
+ * Reuses dangerZoneService.getLiveRisk and project-wide ApiError.
+ * How the frontend consumes this API:
+ * Called dynamically as user GPS coordinates change to verify H3 cell transitions and refresh risk.
+ */
+const getLiveRisk = async (req, res, next) => {
+  try {
+    const { lat, lng, previousH3Index } = req.query;
+
+    const result = await dangerZoneService.getLiveRisk(lat, lng, previousH3Index);
+
+    if (!result) {
+      throw new ApiError(404, `No DangerZone or H3 cell found for location [${lat}, ${lng}].`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Live location risk details retrieved successfully.',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllDangerZones,
   getNearbyDangerZone,
   getCrimeScore,
   getDangerZoneByH3Index,
   getLocationRisk,
+  getLiveRisk,
 };
