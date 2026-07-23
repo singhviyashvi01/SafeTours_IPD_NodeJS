@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import { MapComponent, getRiskColors } from '../../components/MapComponent';
 import { dangerZoneService } from '../../services/dangerZoneService';
 import { locationService } from '../../services/locationService';
+import { communityService } from '../../services/communityService';
 import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
 import { LocationStatusModal } from '../../components/LocationStatusModal';
 
@@ -53,9 +54,73 @@ export const SafetyMapScreen = () => {
     // Diagnostics Status Modal State
     const [showStatusModal, setShowStatusModal] = useState(false);
 
+    // Community Incidents states
+    const [communityIncidents, setCommunityIncidents] = useState([]);
+    const [showCommunityFeed, setShowCommunityFeed] = useState(false);
+    const [showReportModal, setShowReportModal] = useState(false);
+    const [selectedIncidentType, setSelectedIncidentType] = useState('Harassment');
+    const [incidentDescription, setIncidentDescription] = useState('');
+    const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
+    const [incidentMessage, setIncidentMessage] = useState(null);
+
     const mapRef = useRef(null);
     const locationSubscription = useRef(null);
     const lastSyncedCoords = useRef(null);
+
+    const loadCommunityIncidents = async () => {
+        const lat = userLocation?.latitude || 18.9220;
+        const lng = userLocation?.longitude || 72.8347;
+        const res = await communityService.getNearbyIncidents(lat, lng, 5000);
+        if (res.success) {
+            setCommunityIncidents(res.data || []);
+        }
+    };
+
+    const handleReportIncidentSubmit = async () => {
+        if (!incidentDescription || incidentDescription.trim().length < 5) {
+            setIncidentMessage('Please enter a description of at least 5 characters.');
+            return;
+        }
+
+        setIsSubmittingIncident(true);
+        setIncidentMessage(null);
+
+        const lat = userLocation?.latitude || 18.9220;
+        const lng = userLocation?.longitude || 72.8347;
+
+        const res = await communityService.reportIncident({
+            incidentType: selectedIncidentType,
+            description: incidentDescription.trim(),
+            latitude: lat,
+            longitude: lng,
+        });
+
+        setIsSubmittingIncident(false);
+
+        if (res.success) {
+            setIncidentDescription('');
+            setShowReportModal(false);
+            loadCommunityIncidents();
+            setGeofenceToast(`Incident reported: ${selectedIncidentType}`);
+            setTimeout(() => setGeofenceToast(null), 4000);
+        } else {
+            setIncidentMessage(res.error?.message || 'Failed to report incident.');
+        }
+    };
+
+    const handleConfirmIncident = async (incidentId) => {
+        const res = await communityService.confirmIncident(incidentId);
+        if (res.success) {
+            loadCommunityIncidents();
+        }
+    };
+
+    const handleReportFalse = async (incidentId) => {
+        const res = await communityService.reportFalse(incidentId);
+        if (res.success) {
+            loadCommunityIncidents();
+        }
+    };
 
     // Initial check/request on mount
     useEffect(() => {
@@ -366,6 +431,13 @@ export const SafetyMapScreen = () => {
                         </Text>
                     </TouchableOpacity>
 
+                    <TouchableOpacity style={styles.statusChip} onPress={() => { loadCommunityIncidents(); setShowCommunityFeed(true); }}>
+                        <Ionicons name="people-outline" size={16} color={colors.primary} />
+                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
+                            Incidents ({communityIncidents.length})
+                        </Text>
+                    </TouchableOpacity>
+
                     <TouchableOpacity style={styles.statusChip} onPress={() => setShowStatusModal(true)}>
                         <Ionicons name="hardware-chip-outline" size={16} color={colors.primary} />
                         <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
@@ -390,12 +462,15 @@ export const SafetyMapScreen = () => {
                 <TouchableOpacity style={styles.fabSmall} onPress={handleRecenter}>
                     <Ionicons name="locate" size={24} color={colors['on-surface-variant']} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fabSmall} onPress={() => loadDangerZones()}>
+                <TouchableOpacity style={styles.fabSmall} onPress={() => { loadDangerZones(); loadCommunityIncidents(); }}>
                     {isLoadingLocation || isLoadingDangerZones ? (
                         <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                         <Ionicons name="refresh" size={24} color={colors['on-surface-variant']} />
                     )}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.fabSmall} onPress={() => setShowReportModal(true)}>
+                    <Ionicons name="megaphone-outline" size={24} color={colors.primary} />
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.fabSmall} onPress={toggleMapType}>
                     <Ionicons name="layers" size={24} color={colors['on-surface-variant']} />
@@ -619,6 +694,130 @@ export const SafetyMapScreen = () => {
                 lastUpdateTime={lastUpdateTime}
                 offlineQueueSize={locationService.getOfflineQueueSize()}
             />
+
+            {/* Report Community Incident Modal */}
+            <Modal visible={showReportModal} transparent animationType="slide">
+                <View style={styles.permissionOverlay}>
+                    <View style={styles.permissionCard}>
+                        <View style={styles.sheetHeader}>
+                            <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                Report Community Incident
+                            </Text>
+                            <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                                <Ionicons name="close" size={24} color={colors['on-surface-variant']} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {incidentMessage && (
+                            <View style={styles.errorBanner}>
+                                <Text variant="labelMd" style={{ color: colors.error }}>{incidentMessage}</Text>
+                            </View>
+                        )}
+
+                        <Text variant="labelLg" style={{ alignSelf: 'flex-start', marginBottom: 6 }}>Incident Category</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md, maxHeight: 44 }}>
+                            {['Harassment', 'Theft', 'Accident', 'Road Block', 'Street Light Failure', 'Waterlogging', 'Suspicious Activity', 'Assault', 'Fire', 'Other'].map(cat => (
+                                <TouchableOpacity 
+                                    key={cat} 
+                                    style={[
+                                        styles.statusChip, 
+                                        selectedIncidentType === cat && { backgroundColor: colors.primary }
+                                    ]}
+                                    onPress={() => setSelectedIncidentType(cat)}
+                                >
+                                    <Text variant="labelMd" style={{ color: selectedIncidentType === cat ? colors.white : colors['on-surface'] }}>
+                                        {cat}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+
+                        <Text variant="labelLg" style={{ alignSelf: 'flex-start', marginBottom: 6 }}>Description</Text>
+                        <TextInput 
+                            style={styles.communityInput}
+                            placeholder="Describe the incident (min 5 chars)..."
+                            placeholderTextColor={colors['on-surface-variant']}
+                            value={incidentDescription}
+                            onChangeText={setIncidentDescription}
+                            multiline
+                            numberOfLines={3}
+                        />
+
+                        <TouchableOpacity 
+                            style={styles.permissionButton} 
+                            onPress={handleReportIncidentSubmit}
+                            disabled={isSubmittingIncident}
+                        >
+                            {isSubmittingIncident ? (
+                                <ActivityIndicator size="small" color={colors.white} />
+                            ) : (
+                                <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>
+                                    Submit Incident Report
+                                </Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Community Incidents Feed Modal */}
+            <Modal visible={showCommunityFeed} transparent animationType="slide">
+                <View style={styles.permissionOverlay}>
+                    <View style={[styles.permissionCard, { maxHeight: '80%' }]}>
+                        <View style={styles.sheetHeader}>
+                            <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                Nearby Community Reports ({communityIncidents.length})
+                            </Text>
+                            <TouchableOpacity onPress={() => setShowCommunityFeed(false)}>
+                                <Ionicons name="close" size={24} color={colors['on-surface-variant']} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {communityIncidents.length === 0 ? (
+                            <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginVertical: spacing.xl }}>
+                                No community incidents reported nearby.
+                            </Text>
+                        ) : (
+                            <ScrollView contentContainerStyle={{ gap: spacing.md, paddingVertical: spacing.sm }}>
+                                {communityIncidents.map(inc => (
+                                    <View key={inc._id || inc.id} style={styles.communityCard}>
+                                        <View style={styles.sheetHeader}>
+                                            <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                                {inc.incidentType || 'Incident'}
+                                            </Text>
+                                            <Text variant="labelSm" color={colors.outline}>
+                                                {new Date(inc.createdAt || Date.now()).toLocaleTimeString()}
+                                            </Text>
+                                        </View>
+                                        <Text variant="bodyMd" style={{ marginBottom: 8 }}>{inc.description}</Text>
+                                        <View style={styles.votingRow}>
+                                            <TouchableOpacity 
+                                                style={styles.voteBtn}
+                                                onPress={() => handleConfirmIncident(inc._id || inc.id)}
+                                            >
+                                                <Ionicons name="thumbs-up-outline" size={16} color="green" />
+                                                <Text variant="labelMd" style={{ color: 'green', fontWeight: 'bold' }}>
+                                                    Confirm ({inc.upvotesCount ?? inc.confirmationsCount ?? 0})
+                                                </Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity 
+                                                style={styles.voteBtn}
+                                                onPress={() => handleReportFalse(inc._id || inc.id)}
+                                            >
+                                                <Ionicons name="thumbs-down-outline" size={16} color={colors.error} />
+                                                <Text variant="labelMd" style={{ color: colors.error, fontWeight: 'bold' }}>
+                                                    False Report ({inc.downvotesCount ?? inc.falseReportCount ?? 0})
+                                                </Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ))}
+                            </ScrollView>
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </Screen>
     );
 };
@@ -933,5 +1132,39 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         width: '100%',
+    },
+    communityInput: {
+        borderWidth: 1,
+        borderColor: colors.outline,
+        borderRadius: shapes.roundedSm,
+        padding: spacing.md,
+        fontSize: typography.sizes.bodyLg,
+        color: colors['on-surface'],
+        width: '100%',
+        marginBottom: spacing.lg,
+        minHeight: 80,
+        textAlignVertical: 'top',
+    },
+    communityCard: {
+        backgroundColor: colors['surface-container-low'],
+        padding: spacing.md,
+        borderRadius: shapes.roundedLg,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.2)',
+        width: '100%',
+    },
+    votingRow: {
+        flexDirection: 'row',
+        gap: spacing.md,
+        marginTop: spacing.sm,
+    },
+    voteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: shapes.roundedPill,
+        backgroundColor: colors['surface-container'],
     },
 });

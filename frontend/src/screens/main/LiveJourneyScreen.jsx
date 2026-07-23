@@ -1,57 +1,202 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, ScrollView, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, ScrollView, Dimensions, ActivityIndicator, Alert, TextInput, Modal } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
-import { colors, spacing, shapes } from '../../theme/theme';
+import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as Location from 'expo-location';
+import { journeyService } from '../../services/journeys';
+import { sosService } from '../../services/sos';
+import { MapComponent } from '../../components/MapComponent';
 
 const { width, height } = Dimensions.get('window');
 
 export const LiveJourneyScreen = () => {
-    const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
     const navigation = useNavigation();
+    const [bottomSheetExpanded, setBottomSheetExpanded] = useState(true);
+    
+    // Journey state
+    const [activeJourney, setActiveJourney] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errorMessage, setErrorMessage] = useState(null);
+
+    // Form inputs for starting a new journey
+    const [showStartModal, setShowStartModal] = useState(false);
+    const [destinationName, setDestinationName] = useState('Victoria Station');
+    const [destLat, setDestLat] = useState('18.9320');
+    const [destLng, setDestLng] = useState('72.8340');
+    const [etaMinutes, setEtaMinutes] = useState('25');
+
+    // Live GPS location
+    const [userLocation, setUserLocation] = useState(null);
+
+    useEffect(() => {
+        loadInitialState();
+    }, []);
+
+    const loadInitialState = async () => {
+        setIsLoading(true);
+        setErrorMessage(null);
+        try {
+            // Get current location
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                setUserLocation({
+                    latitude: loc.coords.latitude,
+                    longitude: loc.coords.longitude,
+                });
+            }
+
+            // Check active journey status
+            const res = await journeyService.getActive();
+            if (res.success && res.journey) {
+                setActiveJourney(res.journey);
+            } else {
+                setActiveJourney(null);
+            }
+        } catch (err) {
+            console.error('Error loading live journey state:', err);
+            setErrorMessage('Could not load journey status.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleStartJourney = async () => {
+        setIsSubmitting(true);
+        setErrorMessage(null);
+
+        const currentLat = userLocation?.latitude || 18.9220;
+        const currentLng = userLocation?.longitude || 72.8347;
+
+        const targetLat = Number(destLat) || 18.9320;
+        const targetLng = Number(destLng) || 72.8340;
+
+        const minutes = Number(etaMinutes) || 25;
+        const expectedArrivalTime = new Date(Date.now() + minutes * 60000).toISOString();
+
+        const payload = {
+            startLocation: [currentLng, currentLat], // GeoJSON standard [lng, lat]
+            destination: [targetLng, targetLat],
+            expectedArrivalTime,
+        };
+
+        const res = await journeyService.start(payload);
+        setIsSubmitting(false);
+
+        if (res.success && res.journey) {
+            setActiveJourney(res.journey);
+            setShowStartModal(false);
+        } else {
+            setErrorMessage(res.error?.message || 'Failed to start journey.');
+        }
+    };
+
+    const handleEndJourney = async (status = 'COMPLETED') => {
+        if (!activeJourney?._id) return;
+        
+        Alert.alert(
+            status === 'COMPLETED' ? 'End Journey' : 'Cancel Journey',
+            `Are you sure you want to mark this journey as ${status.toLowerCase()}?`,
+            [
+                { text: 'No', style: 'cancel' },
+                {
+                    text: 'Yes',
+                    style: status === 'COMPLETED' ? 'default' : 'destructive',
+                    onPress: async () => {
+                        setIsSubmitting(true);
+                        const res = await journeyService.end(activeJourney._id, status);
+                        setIsSubmitting(false);
+                        if (res.success) {
+                            setActiveJourney(null);
+                        } else {
+                            Alert.alert('Error', res.error?.message || 'Failed to end journey.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const handleTriggerSOS = async () => {
+        Alert.alert(
+            'Emergency SOS',
+            'Trigger emergency alert for your current journey location?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Trigger SOS',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const currentLat = userLocation?.latitude || 18.9220;
+                        const currentLng = userLocation?.longitude || 72.8347;
+
+                        const res = await sosService.triggerManual({
+                            location: {
+                                type: 'Point',
+                                coordinates: [currentLng, currentLat],
+                            },
+                            details: `SOS triggered during active journey ${activeJourney?._id || ''}`,
+                        });
+
+                        if (res.success) {
+                            navigation.navigate('SOS');
+                        } else {
+                            Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    // Calculate arrival time string
+    const etaFormatted = activeJourney?.expectedArrivalTime
+        ? new Date(activeJourney.expectedArrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '18:45';
 
     return (
-        <Screen style={styles.container}>
-            {/* Map Placeholder Image Background */}
-            <Image 
-                source={{ uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=1200' }} 
-                style={styles.mapPlaceholder} 
-                resizeMode="cover"
+        <Screen style={styles.container} isSafe={false}>
+            {/* Map View */}
+            <MapComponent 
+                region={{
+                    latitude: userLocation?.latitude || 18.9220,
+                    longitude: userLocation?.longitude || 72.8347,
+                    latitudeDelta: 0.02,
+                    longitudeDelta: 0.02,
+                }}
+                userLocation={userLocation}
             />
-            {/* Dark overlay for map readability */}
-            <View style={styles.mapOverlay} />
 
-            {/* Top Destination Header */}
+            {/* Top Navigation Header */}
             <View style={styles.topHeader}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                     <Ionicons name="arrow-back" size={24} color={colors['on-surface']} />
                 </TouchableOpacity>
                 <View style={styles.destinationBox}>
-                    <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>Navigating To</Text>
-                    <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>Victoria Station</Text>
+                    <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>
+                        {activeJourney ? "Active Journey To" : "Destination"}
+                    </Text>
+                    <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>
+                        {activeJourney ? destinationName : "No Active Journey"}
+                    </Text>
                 </View>
-                <TouchableOpacity style={styles.cancelBtn} onPress={() => navigation.goBack()}>
-                    <Text variant="labelLg" color={colors.error}>Cancel</Text>
-                </TouchableOpacity>
+                {activeJourney ? (
+                    <TouchableOpacity style={styles.cancelBtn} onPress={() => handleEndJourney('CANCELLED')}>
+                        <Text variant="labelLg" color={colors.error} style={{ fontWeight: 'bold' }}>Cancel</Text>
+                    </TouchableOpacity>
+                ) : (
+                    <TouchableOpacity style={styles.startHeaderBtn} onPress={() => setShowStartModal(true)}>
+                        <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>Start</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
-            {/* Floating Map Controls */}
-            <View style={styles.floatingControls}>
-                <TouchableOpacity style={styles.fabBtn}>
-                    <Ionicons name="map" size={24} color={colors['on-surface-variant']} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.fabBtn}>
-                    <Ionicons name="navigate" size={24} color={colors.primary} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.fabBtn}>
-                    <Ionicons name="cellular-outline" size={24} color={colors['on-surface-variant']} />
-                </TouchableOpacity>
-            </View>
-
-            {/* SOS FAB */}
-            <TouchableOpacity style={styles.sosFab} onPress={() => navigation.navigate('SOS')}>
+            {/* Floating SOS Button */}
+            <TouchableOpacity style={styles.sosFab} onPress={handleTriggerSOS}>
                 <Ionicons name="warning" size={32} color={colors.white} />
             </TouchableOpacity>
 
@@ -64,101 +209,153 @@ export const LiveJourneyScreen = () => {
                     <View style={styles.sheetHandle} />
                 </TouchableOpacity>
 
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-                    
-                    {/* Progress Header */}
-                    <View style={styles.progressHeader}>
-                        <View>
-                            <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>Arriving in 14 min</Text>
-                            <Text variant="bodyMd" color={colors['on-surface-variant']}>Estimated 18:45 Arrival</Text>
-                        </View>
-                        <View style={styles.safeRouteBadge}>
-                            <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
-                            <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>Safe Route</Text>
-                        </View>
+                {errorMessage && (
+                    <View style={styles.errorBox}>
+                        <Ionicons name="alert-circle" size={20} color={colors.error} />
+                        <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{errorMessage}</Text>
                     </View>
+                )}
 
-                    {/* Progress Bar */}
-                    <View style={styles.progressBarBg}>
-                        <View style={styles.progressBarFill} />
+                {isLoading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text variant="labelLg" color={colors['on-surface-variant']} style={{ marginTop: 8 }}>
+                            Syncing journey status...
+                        </Text>
                     </View>
+                ) : activeJourney ? (
+                    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
+                        {/* Progress Header */}
+                        <View style={styles.progressHeader}>
+                            <View>
+                                <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>Journey Active</Text>
+                                <Text variant="bodyMd" color={colors['on-surface-variant']}>ETA: {etaFormatted}</Text>
+                            </View>
+                            <View style={styles.safeRouteBadge}>
+                                <Ionicons name="shield-checkmark" size={20} color={colors.primary} />
+                                <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>
+                                    {activeJourney.status || 'ACTIVE'}
+                                </Text>
+                            </View>
+                        </View>
 
-                    {/* Stats Bento Grid */}
-                    <View style={styles.statsGrid}>
-                        <View style={styles.statBox}>
-                            <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Time Left</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>14 min</Text>
+                        {/* Progress Bar */}
+                        <View style={styles.progressBarBg}>
+                            <View style={styles.progressBarFill} />
                         </View>
-                        <View style={styles.statBox}>
-                            <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Distance</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>0.8 mi</Text>
-                        </View>
-                        <View style={styles.statBox}>
-                            <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Speed</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>3.2 mph</Text>
-                        </View>
-                        <View style={styles.statBox}>
-                            <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Arrival</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>18:45</Text>
-                        </View>
-                    </View>
 
-                    {/* AI Recommendation */}
-                    <View style={styles.aiBox}>
-                        <View style={styles.aiIconWrapper}>
-                            <Ionicons name="sparkles" size={24} color={colors.secondary} />
+                        {/* Stats Bento Grid */}
+                        <View style={styles.statsGrid}>
+                            <View style={styles.statBox}>
+                                <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Status</Text>
+                                <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                    {activeJourney.status}
+                                </Text>
+                            </View>
+                            <View style={styles.statBox}>
+                                <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Target ETA</Text>
+                                <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>{etaFormatted}</Text>
+                            </View>
                         </View>
-                        <View style={{ flex: 1 }}>
-                            <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors['on-secondary-container'] }}>AI Safety Assistant</Text>
-                            <Text variant="labelMd" style={{ color: colors['on-secondary-container'], opacity: 0.8, marginTop: 4 }}>
-                                "Route is clear, stay on path. No recent alerts in Victoria St area."
+
+                        {/* AI Recommendation */}
+                        <View style={styles.aiBox}>
+                            <View style={styles.aiIconWrapper}>
+                                <Ionicons name="sparkles" size={24} color={colors.secondary} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors['on-secondary-container'] }}>AI Safety Assistant</Text>
+                                <Text variant="labelMd" style={{ color: colors['on-secondary-container'], opacity: 0.8, marginTop: 4 }}>
+                                    "Route monitoring active. Keep location enabled for continuous safety tracking."
+                                </Text>
+                            </View>
+                        </View>
+
+                        {/* Action Buttons Row */}
+                        <View style={styles.actionRow}>
+                            <TouchableOpacity 
+                                style={styles.completeBtn} 
+                                onPress={() => handleEndJourney('COMPLETED')}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? (
+                                    <ActivityIndicator size="small" color={colors.white} />
+                                ) : (
+                                    <>
+                                        <Ionicons name="checkmark-circle" size={20} color={colors.white} />
+                                        <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>
+                                            Complete Journey
+                                        </Text>
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+                    </ScrollView>
+                ) : (
+                    <View style={styles.noJourneyContainer}>
+                        <Ionicons name="navigate-circle-outline" size={64} color={colors.primary} />
+                        <Text variant="headlineSm" style={{ fontWeight: 'bold', marginTop: 12 }}>No Active Journey</Text>
+                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginVertical: 8 }}>
+                            Start a journey to enable live tracking, ETA monitoring, and safety alerts.
+                        </Text>
+
+                        <TouchableOpacity 
+                            style={styles.startNewBtn}
+                            onPress={() => setShowStartModal(true)}
+                        >
+                            <Ionicons name="play" size={20} color={colors.white} />
+                            <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>
+                                Start New Journey
                             </Text>
-                        </View>
+                        </TouchableOpacity>
                     </View>
-
-                    {/* Timeline */}
-                    <View style={styles.timeline}>
-                        <View style={styles.timelineLine} />
-
-                        {/* Node 1 */}
-                        <View style={styles.timelineNodeContainer}>
-                            <View style={styles.nodeIconActive} />
-                            <View style={styles.nodeContent}>
-                                <View style={styles.nodeHeader}>
-                                    <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Entered Soho Central</Text>
-                                    <Text variant="labelSm" color={colors.outline}>18:31</Text>
-                                </View>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>High visibility zone, 4 security cameras active.</Text>
-                            </View>
-                        </View>
-
-                        {/* Node 2 */}
-                        <View style={[styles.timelineNodeContainer, { opacity: 0.6 }]}>
-                            <View style={styles.nodeIconInactive} />
-                            <View style={styles.nodeContent}>
-                                <View style={styles.nodeHeader}>
-                                    <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Entered Yellow Zone</Text>
-                                    <Text variant="labelSm" color={colors.outline}>18:25</Text>
-                                </View>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>Construction area ahead. AI monitoring activated.</Text>
-                            </View>
-                        </View>
-
-                        {/* Node 3 */}
-                        <View style={[styles.timelineNodeContainer, { opacity: 0.4 }]}>
-                            <View style={styles.nodeIconInactive} />
-                            <View style={styles.nodeContent}>
-                                <View style={styles.nodeHeader}>
-                                    <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Journey Started</Text>
-                                    <Text variant="labelSm" color={colors.outline}>18:20</Text>
-                                </View>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>Oxford Circus Station departure.</Text>
-                            </View>
-                        </View>
-                    </View>
-
-                </ScrollView>
+                )}
             </View>
+
+            {/* Start Journey Modal */}
+            <Modal visible={showStartModal} transparent animationType="slide">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>Start New Journey</Text>
+                            <TouchableOpacity onPress={() => setShowStartModal(false)}>
+                                <Ionicons name="close" size={24} color={colors['on-surface-variant']} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text variant="labelLg" style={{ marginBottom: 4 }}>Destination Name</Text>
+                        <TextInput 
+                            style={styles.input}
+                            value={destinationName}
+                            onChangeText={setDestinationName}
+                            placeholder="e.g. Victoria Station"
+                        />
+
+                        <Text variant="labelLg" style={{ marginBottom: 4 }}>ETA (Minutes)</Text>
+                        <TextInput 
+                            style={styles.input}
+                            value={etaMinutes}
+                            onChangeText={setEtaMinutes}
+                            keyboardType="numeric"
+                            placeholder="25"
+                        />
+
+                        <TouchableOpacity 
+                            style={styles.modalSubmitBtn}
+                            onPress={handleStartJourney}
+                            disabled={isSubmitting}
+                        >
+                            {isSubmitting ? (
+                                <ActivityIndicator size="small" color={colors.white} />
+                            ) : (
+                                <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>
+                                    Confirm & Start Journey
+                                </Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </Screen>
     );
 };
@@ -167,16 +364,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: colors.background,
-    },
-    mapPlaceholder: {
-        ...StyleSheet.absoluteFillObject,
-        width: width,
-        height: height,
-        opacity: 0.6,
-    },
-    mapOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(255, 248, 246, 0.1)',
     },
     topHeader: {
         position: 'absolute',
@@ -211,29 +398,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.md,
         paddingVertical: spacing.sm,
     },
-    floatingControls: {
-        position: 'absolute',
-        right: spacing.md,
-        top: 140,
-        gap: spacing.sm,
-        zIndex: 10,
-    },
-    fabBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 16,
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 8,
-        elevation: 4,
+    startHeaderBtn: {
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
     },
     sosFab: {
         position: 'absolute',
-        bottom: 240,
+        bottom: 260,
         right: spacing.md,
         width: 64,
         height: 64,
@@ -253,7 +424,7 @@ const styles = StyleSheet.create({
         bottom: 0,
         left: 0,
         right: 0,
-        height: 500,
+        maxHeight: 460,
         backgroundColor: colors['surface-container-lowest'],
         borderTopLeftRadius: 32,
         borderTopRightRadius: 32,
@@ -264,15 +435,11 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 20,
         zIndex: 30,
-        transform: [{ translateY: 240 }], // hidden state
     },
-    bottomSheetExpanded: {
-        transform: [{ translateY: 0 }],
-    },
+    bottomSheetExpanded: {},
     sheetHandleContainer: {
         alignItems: 'center',
         paddingVertical: spacing.md,
-        paddingBottom: spacing.lg,
     },
     sheetHandle: {
         width: 48,
@@ -280,11 +447,25 @@ const styles = StyleSheet.create({
         backgroundColor: colors['outline-variant'],
         borderRadius: 3,
     },
+    loadingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing.xl,
+    },
+    errorBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors['error-container'] || '#ffdad6',
+        padding: spacing.md,
+        borderRadius: shapes.roundedSm,
+        marginBottom: spacing.md,
+    },
     progressHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: spacing.xl,
+        marginBottom: spacing.md,
     },
     safeRouteBadge: {
         flexDirection: 'row',
@@ -299,26 +480,25 @@ const styles = StyleSheet.create({
     },
     progressBarBg: {
         width: '100%',
-        height: 12,
+        height: 10,
         backgroundColor: colors['surface-container-high'],
-        borderRadius: 6,
-        marginBottom: spacing.xl,
+        borderRadius: 5,
+        marginBottom: spacing.md,
         overflow: 'hidden',
     },
     progressBarFill: {
-        width: '66%',
+        width: '75%',
         height: '100%',
         backgroundColor: colors.primary,
-        borderRadius: 6,
+        borderRadius: 5,
     },
     statsGrid: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
         gap: spacing.md,
-        marginBottom: spacing.xl,
+        marginBottom: spacing.md,
     },
     statBox: {
-        width: '47%',
+        flex: 1,
         backgroundColor: colors['surface-container-low'],
         padding: spacing.md,
         borderRadius: shapes.roundedLg,
@@ -335,71 +515,77 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         gap: spacing.md,
         backgroundColor: colors['secondary-container'],
-        padding: spacing.lg,
-        borderRadius: shapes.roundedXl,
-        marginBottom: spacing.xl,
+        padding: spacing.md,
+        borderRadius: shapes.roundedLg,
+        marginBottom: spacing.md,
     },
     aiIconWrapper: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
         backgroundColor: colors.white,
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
     },
-    timeline: {
-        paddingLeft: 16,
-        position: 'relative',
+    actionRow: {
+        marginTop: spacing.sm,
     },
-    timelineLine: {
-        position: 'absolute',
-        left: 23,
-        top: 8,
-        bottom: 8,
-        width: 2,
-        backgroundColor: 'rgba(217, 194, 183, 0.3)',
-    },
-    timelineNodeContainer: {
-        flexDirection: 'row',
-        marginBottom: spacing.lg,
-    },
-    nodeIconActive: {
-        width: 16,
-        height: 16,
-        borderRadius: 8,
+    completeBtn: {
+        height: 52,
         backgroundColor: colors.primary,
-        borderWidth: 4,
-        borderColor: colors.white,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2,
-        marginRight: spacing.lg,
-        marginTop: 4,
+        borderRadius: shapes.roundedPill,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
     },
-    nodeIconInactive: {
-        width: 16,
-        height: 16,
-        borderRadius: 8,
-        backgroundColor: colors['outline-variant'],
-        borderWidth: 4,
-        borderColor: colors.white,
-        marginRight: spacing.lg,
-        marginTop: 4,
+    noJourneyContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing.xl,
     },
-    nodeContent: {
+    startNewBtn: {
+        height: 52,
+        paddingHorizontal: spacing.xl,
+        backgroundColor: colors.primary,
+        borderRadius: shapes.roundedPill,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: spacing.md,
+    },
+    modalOverlay: {
         flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'center',
+        padding: spacing.lg,
     },
-    nodeHeader: {
+    modalContent: {
+        backgroundColor: colors.surface,
+        borderRadius: shapes.roundedLg,
+        padding: spacing.lg,
+    },
+    modalHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 2,
+        marginBottom: spacing.lg,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: colors.outline,
+        borderRadius: shapes.roundedSm,
+        padding: spacing.md,
+        fontSize: typography.sizes.bodyLg,
+        color: colors['on-surface'],
+        marginBottom: spacing.lg,
+    },
+    modalSubmitBtn: {
+        height: 52,
+        backgroundColor: colors.primary,
+        borderRadius: shapes.roundedPill,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });

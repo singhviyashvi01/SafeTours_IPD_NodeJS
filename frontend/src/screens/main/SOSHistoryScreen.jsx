@@ -1,2 +1,107 @@
-import React,{useEffect,useState}from'react'; import {View,ScrollView,TouchableOpacity,StyleSheet}from'react-native'; import {Ionicons}from'@expo/vector-icons'; import {Screen}from'../../components/Screen'; import {Text}from'../../components/Text'; import {DataState}from'../../components/DataState'; import {sosService}from'../../services/sos'; import {colors,spacing,shapes}from'../../theme/theme';
-export const SOSHistoryScreen=({navigation})=>{const [items,setItems]=useState(null),[error,setError]=useState('');const load=()=>{setError('');setItems(null);sosService.list().then(setItems).catch(e=>setError(e.message));};useEffect(load,[]);return <Screen style={styles.container}><View style={styles.header}><TouchableOpacity onPress={()=>navigation.goBack()}><Ionicons name="arrow-back" size={24} color={colors.primary}/></TouchableOpacity><Text variant="headlineMd" style={styles.title}>SOS History</Text><View style={{width:24}}/></View>{!items?<DataState loading={!error} error={error} onRetry={load}/>:items.length===0?<DataState empty emptyText="No SOS events have been recorded."/>:<ScrollView contentContainerStyle={styles.content}>{items.map(item=><View key={item.id} style={styles.card}><Ionicons name="warning" size={24} color={colors.error}/><View style={{flex:1}}><Text variant="labelLg" style={{fontWeight:'bold'}}>SOS {item.status}</Text><Text color={colors['on-surface-variant']}>{item.location.address}</Text><Text variant="labelMd" color={colors.outline}>{new Date(item.triggeredAt).toLocaleString()}</Text></View></View>)}</ScrollView>}</Screen>};const styles=StyleSheet.create({container:{flex:1,backgroundColor:colors.surface},header:{padding:spacing.lg,flexDirection:'row',justifyContent:'space-between',borderBottomWidth:1,borderColor:colors['surface-variant']},title:{fontWeight:'bold',color:colors.primary},content:{padding:spacing.lg,gap:spacing.md},card:{flexDirection:'row',alignItems:'center',gap:spacing.md,padding:spacing.md,backgroundColor:colors['error-container'],borderRadius:shapes.roundedLg}});
+import React, { useEffect, useState } from 'react';
+import { View, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Screen } from '../../components/Screen';
+import { Text } from '../../components/Text';
+import { DataState } from '../../components/DataState';
+import { sosService } from '../../services/sos';
+import { colors, spacing, shapes } from '../../theme/theme';
+
+export const SOSHistoryScreen = ({ navigation }) => {
+  const [items, setItems] = useState(null);
+  const [error, setError] = useState('');
+
+  const load = async () => {
+    setError('');
+    setItems(null);
+    try {
+      const history = await sosService.list();
+      setItems(history);
+    } catch (e) {
+      setError(e?.message || 'Failed to load SOS history.');
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return (
+    <Screen style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <Text variant="headlineMd" style={styles.title}>SOS History</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      {!items ? (
+        <DataState loading={!error} error={error} onRetry={load} />
+      ) : items.length === 0 ? (
+        <DataState empty emptyText="No SOS events have been recorded." />
+      ) : (
+        <ScrollView contentContainerStyle={styles.content}>
+          {items.map((item, index) => {
+            const status = (item.status || 'ACTIVE').toUpperCase();
+            const dateStr = item.createdAt || item.triggeredAt || item.timestamp;
+            const timeFormatted = dateStr ? new Date(dateStr).toLocaleString() : 'Recent';
+            
+            let coordsStr = 'Location Captured';
+            if (item.location && Array.isArray(item.location.coordinates)) {
+              coordsStr = `${item.location.coordinates[1].toFixed(4)}° N, ${item.location.coordinates[0].toFixed(4)}° E`;
+            }
+
+            return (
+              <View key={item._id || item.id || `sos-${index}`} style={styles.card}>
+                <Ionicons name="warning" size={28} color={colors.error} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
+                    SOS Event ({status})
+                  </Text>
+                  <Text color={colors['on-surface-variant']}>
+                    Type: {item.triggerType || item.type || 'Manual'}
+                  </Text>
+                  <Text variant="labelMd" color={colors.outline}>
+                    {coordsStr} • {timeFormatted}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+    </Screen>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.surface,
+  },
+  header: {
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderColor: colors['surface-variant'],
+  },
+  title: {
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+  content: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors['error-container'],
+    borderRadius: shapes.roundedLg,
+  },
+});

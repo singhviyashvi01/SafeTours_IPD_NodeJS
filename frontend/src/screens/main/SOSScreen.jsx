@@ -1,15 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Modal, Animated } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Image, Switch, Modal, Animated, ActivityIndicator, Alert } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { sosService } from '../../services/sos';
+import { useNavigation } from '@react-navigation/native';
 
 export const SOSScreen = () => {
+    const navigation = useNavigation();
     const [isShadowMode, setIsShadowMode] = useState(true);
     const [showSafetyModal, setShowSafetyModal] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
     const [countdown, setCountdown] = useState(60);
+
+    // SOS States
+    const [activeSosRecord, setActiveSosRecord] = useState(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [userLocation, setUserLocation] = useState(null);
+    const [statusMessage, setStatusMessage] = useState('SOS Status: Ready');
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -28,7 +38,24 @@ export const SOSScreen = () => {
                 })
             ])
         ).start();
+
+        fetchCurrentLocation();
     }, []);
+
+    const fetchCurrentLocation = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                setUserLocation({
+                    latitude: loc.coords.latitude,
+                    longitude: loc.coords.longitude,
+                });
+            }
+        } catch (err) {
+            console.warn('Could not fetch location for SOS:', err);
+        }
+    };
 
     useEffect(() => {
         let interval;
@@ -37,16 +64,95 @@ export const SOSScreen = () => {
                 setCountdown((prev) => prev - 1);
             }, 1000);
         } else if (countdown === 0) {
-            // handle emergency trigger
+            // Trigger automatic SOS when countdown expires
             setShowSafetyModal(false);
+            handleAutomaticSOSTrigger();
         }
         return () => clearInterval(interval);
     }, [showSafetyModal, countdown]);
 
-    const handleSOSPress = () => {
-        // Implement long press logic or simple alert for now
-        alert('SOS SENT TO CONTACTS AND AUTHORITIES!');
+    const handleSOSPress = async () => {
+        setIsSubmitting(true);
+        setStatusMessage('Broadcasting Emergency SOS...');
+
+        const currentLat = userLocation?.latitude || 18.9220;
+        const currentLng = userLocation?.longitude || 72.8347;
+
+        const payload = {
+            location: {
+                type: 'Point',
+                coordinates: [currentLng, currentLat], // GeoJSON standard [lng, lat]
+            },
+            details: 'Manual SOS button pressed by user from mobile screen.',
+        };
+
+        const res = await sosService.triggerManual(payload);
+        setIsSubmitting(false);
+
+        if (res.success) {
+            setActiveSosRecord(res.data);
+            setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
+            Alert.alert('SOS Broadcast Sent', 'Your emergency alert and live coordinates have been broadcast.');
+        } else {
+            setStatusMessage('SOS Status: Ready');
+            Alert.alert('SOS Error', res.error?.message || 'Could not send emergency alert.');
+        }
     };
+
+    const handleAutomaticSOSTrigger = async () => {
+        const currentLat = userLocation?.latitude || 18.9220;
+        const currentLng = userLocation?.longitude || 72.8347;
+
+        const payload = {
+            location: {
+                type: 'Point',
+                coordinates: [currentLng, currentLat],
+            },
+            triggerReason: 'Safety prompt countdown expired without user response.',
+        };
+
+        const res = await sosService.triggerAutomatic(payload);
+        if (res.success) {
+            setActiveSosRecord(res.data);
+            setStatusMessage('AUTOMATIC SOS ACTIVE');
+        }
+    };
+
+    const handleCancelSOS = async () => {
+        const sosId = activeSosRecord?._id || activeSosRecord?.id;
+        if (!sosId) {
+            setActiveSosRecord(null);
+            setStatusMessage('SOS Status: Ready');
+            return;
+        }
+
+        Alert.alert(
+            'Cancel Emergency Action',
+            'Are you sure you want to cancel the active SOS alert?',
+            [
+                { text: 'No', style: 'cancel' },
+                {
+                    text: 'Cancel SOS',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsSubmitting(true);
+                        const res = await sosService.cancel(sosId, 'User cancelled emergency alert from app');
+                        setIsSubmitting(false);
+                        if (res.success) {
+                            setActiveSosRecord(null);
+                            setStatusMessage('SOS Status: Ready');
+                            Alert.alert('Cancelled', 'Emergency SOS alert has been cancelled.');
+                        } else {
+                            Alert.alert('Error', res.error?.message || 'Could not cancel SOS.');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const latStr = userLocation ? `${userLocation.latitude.toFixed(4)}° N` : '18.9220° N';
+    const lngStr = userLocation ? `${userLocation.longitude.toFixed(4)}° E` : '72.8347° E';
 
     return (
         <Screen style={styles.container}>
@@ -56,37 +162,48 @@ export const SOSScreen = () => {
                     <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
                     <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
                 </View>
-                <View style={styles.profilePicContainer}>
-                    <Image 
-                        source={{ uri: 'https://i.pravatar.cc/100?img=9' }} 
-                        style={styles.profilePic} 
-                    />
-                </View>
+                <TouchableOpacity onPress={() => navigation.navigate('SOSHistory')}>
+                    <Ionicons name="time" size={24} color={colors.primary} />
+                </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 
                 {/* Emergency Header */}
-                <View style={styles.emergencyHeader}>
+                <View style={[styles.emergencyHeader, activeSosRecord && { backgroundColor: colors.error }]}>
                     <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                        <Ionicons name="home" size={32} color={colors.error} />
+                        <Ionicons name="warning" size={32} color={activeSosRecord ? colors.white : colors.error} />
                     </Animated.View>
                     <View style={styles.emergencyHeaderText}>
-                        <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>SOS Status: Ready</Text>
-                        <Text variant="labelMd" style={{ opacity: 0.8, textTransform: 'uppercase' }}>Tap and hold to broadcast</Text>
+                        <Text variant="headlineSm" style={[{ fontWeight: 'bold' }, activeSosRecord && { color: colors.white }]}>
+                            {statusMessage}
+                        </Text>
+                        <Text variant="labelMd" style={[{ opacity: 0.8, textTransform: 'uppercase' }, activeSosRecord && { color: colors.white }]}>
+                            {activeSosRecord ? "Active Emergency Tracking" : "Tap and hold to broadcast"}
+                        </Text>
                     </View>
                 </View>
 
                 {/* Big SOS Button */}
                 <View style={styles.sosButtonContainer}>
                     <TouchableOpacity 
-                        style={styles.sosButton}
+                        style={[styles.sosButton, activeSosRecord && { backgroundColor: colors['error-container'] }]}
                         onLongPress={handleSOSPress}
-                        delayLongPress={2000}
+                        onPress={handleSOSPress}
+                        delayLongPress={1000}
                         activeOpacity={0.8}
+                        disabled={isSubmitting}
                     >
-                        <Ionicons name="warning" size={48} color={colors['on-error']} />
-                        <Text variant="headlineSm" style={styles.sosButtonText}>Send SOS</Text>
+                        {isSubmitting ? (
+                            <ActivityIndicator size="large" color={colors.white} />
+                        ) : (
+                            <>
+                                <Ionicons name="warning" size={48} color={activeSosRecord ? colors.error : colors['on-error']} />
+                                <Text variant="headlineSm" style={[styles.sosButtonText, activeSosRecord && { color: colors.error }]}>
+                                    {activeSosRecord ? "SOS SENT" : "Send SOS"}
+                                </Text>
+                            </>
+                        )}
                     </TouchableOpacity>
                     <Text variant="labelMd" style={styles.sosButtonHint}>
                         Contacts & local authorities will be notified instantly
@@ -108,11 +225,13 @@ export const SOSScreen = () => {
                     <View style={styles.innerCard}>
                         <View style={styles.innerCardRowBorder}>
                             <Text variant="labelMd" color={colors['on-surface-variant']}>Coordinates</Text>
-                            <Text variant="bodyMd" style={styles.monoText}>40.7128° N, 74.0060° W</Text>
+                            <Text variant="bodyMd" style={styles.monoText}>{latStr}, {lngStr}</Text>
                         </View>
                         <View style={styles.innerCardRow}>
-                            <Text variant="labelMd" color={colors['on-surface-variant']}>Zone ID</Text>
-                            <Text variant="bodyMd" style={{ fontWeight: 'bold' }}>NY-MAN-0024</Text>
+                            <Text variant="labelMd" color={colors['on-surface-variant']}>Status</Text>
+                            <Text variant="bodyMd" style={{ fontWeight: 'bold' }}>
+                                {activeSosRecord ? 'EMERGENCY_BROADCAST' : 'READY'}
+                            </Text>
                         </View>
                     </View>
 
@@ -140,54 +259,22 @@ export const SOSScreen = () => {
                     <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginBottom: spacing.lg }}>
                         Automatically monitors your journey and triggers SOS if you deviate from the safe route or stop moving for too long.
                     </Text>
-
-                    {/* Timeline */}
-                    <View style={styles.timeline}>
-                        {/* Event 1 */}
-                        <View style={styles.timelineEvent}>
-                            <View style={[styles.timelineNode, styles.timelineNodeActive]}>
-                                <View style={styles.timelineNodeInnerActive} />
-                            </View>
-                            <View style={styles.timelineContent}>
-                                <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Location Captured</Text>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>2 minutes ago</Text>
-                            </View>
-                        </View>
-                        
-                        {/* Event 2 */}
-                        <View style={[styles.timelineEvent, { opacity: 0.5 }]}>
-                            <View style={styles.timelineNode}>
-                                <View style={styles.timelineNodeInner} />
-                            </View>
-                            <View style={styles.timelineContent}>
-                                <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Shadow Mode Initialized</Text>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>Waiting for destination...</Text>
-                            </View>
-                        </View>
-
-                        {/* Event 3 */}
-                        <View style={[styles.timelineEvent, { opacity: 0.5 }]}>
-                            <View style={styles.timelineNode}>
-                                <View style={styles.timelineNodeInner} />
-                            </View>
-                            <View style={styles.timelineContent}>
-                                <Text variant="labelLg" style={{ fontWeight: 'bold' }}>Contacts Notified</Text>
-                                <Text variant="labelMd" color={colors['on-surface-variant']}>Will trigger on SOS</Text>
-                            </View>
-                        </View>
-                    </View>
                 </View>
 
                 {/* Cancel Area */}
-                <View style={styles.cancelArea}>
-                    <TouchableOpacity style={styles.cancelBtn}>
-                        <Text variant="labelLg" color={colors['on-surface-variant']} style={{ fontWeight: 'bold' }}>CANCEL EMERGENCY ACTION</Text>
-                    </TouchableOpacity>
-                </View>
+                {activeSosRecord && (
+                    <View style={styles.cancelArea}>
+                        <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelSOS} disabled={isSubmitting}>
+                            <Text variant="labelLg" color={colors.error} style={{ fontWeight: 'bold' }}>
+                                CANCEL EMERGENCY ACTION
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
                 
-                {/* For testing modal button */}
+                {/* Test Safety Prompt Modal button */}
                 <TouchableOpacity style={{ padding: 20, alignItems: 'center' }} onPress={() => { setCountdown(60); setShowSafetyModal(true); }}>
-                    <Text color={colors.primary}>Test "Are you safe?" Modal</Text>
+                    <Text color={colors.primary}>Test "Are you safe?" Safety Prompt</Text>
                 </TouchableOpacity>
 
                 <View style={{ height: 100 }} />
@@ -229,7 +316,7 @@ export const SOSScreen = () => {
                         <View style={styles.innerCard}>
                             <View style={styles.innerCardRow}>
                                 <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>Coordinates</Text>
-                                <Text variant="bodyMd" style={styles.monoText}>40.7128° N, 74.0060° W</Text>
+                                <Text variant="bodyMd" style={styles.monoText}>{latStr}, {lngStr}</Text>
                             </View>
                             <View style={[styles.innerCardRow, { marginTop: 12 }]}>
                                 <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>Timestamp</Text>
@@ -275,18 +362,6 @@ const styles = StyleSheet.create({
     headerTitle: {
         color: colors.primary,
         fontWeight: 'bold',
-    },
-    profilePicContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        borderWidth: 2,
-        borderColor: colors['primary-container'],
-        overflow: 'hidden',
-    },
-    profilePic: {
-        width: '100%',
-        height: '100%',
     },
     scrollContent: {
         padding: spacing.lg,
@@ -407,45 +482,6 @@ const styles = StyleSheet.create({
     shareBtnText: {
         color: colors.tertiary,
     },
-    timeline: {
-        paddingLeft: 16,
-    },
-    timelineEvent: {
-        position: 'relative',
-        paddingBottom: spacing.lg,
-    },
-    timelineNode: {
-        position: 'absolute',
-        left: -32,
-        top: 0,
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: colors['surface-container-highest'],
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 4,
-        borderColor: colors.surface,
-        zIndex: 2,
-    },
-    timelineNodeActive: {
-        backgroundColor: colors['primary-container'],
-    },
-    timelineNodeInner: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: colors.outline,
-    },
-    timelineNodeInnerActive: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: colors.primary,
-    },
-    timelineContent: {
-        paddingLeft: 8,
-    },
     cancelArea: {
         paddingTop: spacing.md,
     },
@@ -453,12 +489,11 @@ const styles = StyleSheet.create({
         width: '100%',
         paddingVertical: 16,
         borderWidth: 2,
-        borderColor: colors['outline-variant'],
+        borderColor: colors.error,
         borderRadius: shapes.roundedPill,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    // Modal Styles
     modalOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
@@ -511,7 +546,6 @@ const styles = StyleSheet.create({
         borderRadius: shapes.roundedPill,
         alignItems: 'center',
     },
-    // Sheet Styles
     sheetOverlay: {
         flex: 1,
         backgroundColor: 'rgba(0, 0, 0, 0.4)',
