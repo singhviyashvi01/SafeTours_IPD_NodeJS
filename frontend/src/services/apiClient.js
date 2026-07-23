@@ -23,6 +23,17 @@ export const apiClient = axios.create({
   timeout: 15000,
 });
 
+/**
+ * Helper to update or remove the default Authorization header on apiClient
+ */
+export const setAuthTokenHeader = token => {
+  if (token) {
+    apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    delete apiClient.defaults.headers.common.Authorization;
+  }
+};
+
 // Event listener mechanism for unauthorized (401) logout handling
 let onUnauthorizedCallback = null;
 
@@ -68,11 +79,11 @@ apiClient.interceptors.response.use(
 
     // Do not attempt refresh on auth endpoints (login, signup, refresh-token)
     const isAuthRoute =
-      originalRequest.url?.includes('/auth/login') ||
-      originalRequest.url?.includes('/auth/signup') ||
-      originalRequest.url?.includes('/auth/refresh-token');
+      originalRequest?.url?.includes('/auth/login') ||
+      originalRequest?.url?.includes('/auth/signup') ||
+      originalRequest?.url?.includes('/auth/refresh-token');
 
-    if (error.response?.status === 401 && !originalRequest._retry && !isAuthRoute) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -105,7 +116,7 @@ apiClient.interceptors.response.use(
           await tokenStorage.saveRefreshToken(newRefreshToken);
         }
 
-        apiClient.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
+        setAuthTokenHeader(accessToken);
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
 
         processQueue(null, accessToken);
@@ -113,6 +124,7 @@ apiClient.interceptors.response.use(
       } catch (refreshErr) {
         processQueue(refreshErr, null);
         await tokenStorage.clearTokens();
+        setAuthTokenHeader(null);
         if (onUnauthorizedCallback) {
           onUnauthorizedCallback();
         }

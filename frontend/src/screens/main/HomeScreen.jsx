@@ -17,8 +17,8 @@ export const HomeScreen = () => {
     const [data, setData] = useState(null);
     const [profile, setProfile] = useState(null);
     useEffect(() => {
-        dashboardService.getDashboardData().then(setData);
-        profileService.getProfile().then(setProfile);
+        dashboardService.getDashboardData().then(setData).catch(err => console.warn('Dashboard load error:', err));
+        profileService.getProfile().then(setProfile).catch(err => console.warn('Profile load error:', err));
     }, []);
 
     if (!data) {

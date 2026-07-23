@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { authService } from '../services/auth';
 import { tokenStorage } from '../services/tokenStorage';
-import { setUnauthorizedCallback, formatApiError } from '../services/apiClient';
+import { setUnauthorizedCallback, setAuthTokenHeader, formatApiError } from '../services/apiClient';
 
 const AuthContext = createContext({});
 
@@ -16,6 +16,7 @@ export const AuthProvider = ({ children }) => {
 
   const handleUnauthorized = useCallback(async () => {
     await tokenStorage.clearTokens();
+    setAuthTokenHeader(null);
     setTokens(null);
     setUser(null);
     setIsLoading(false);
@@ -37,14 +38,17 @@ export const AuthProvider = ({ children }) => {
           return;
         }
 
+        setAuthTokenHeader(accessToken);
+        setTokens({ accessToken, refreshToken });
+
         // Fetch current user from backend
         const authenticatedUser = await authService.getMe();
-        setTokens({ accessToken, refreshToken });
         setUser(authenticatedUser);
         setIsProfileComplete(true);
       } catch (err) {
         console.warn('Session restoration failed:', err?.message || err);
         await tokenStorage.clearTokens();
+        setAuthTokenHeader(null);
         setTokens(null);
         setUser(null);
       } finally {
@@ -64,10 +68,15 @@ export const AuthProvider = ({ children }) => {
       tokenStorage.saveRefreshToken(refreshToken),
     ]);
 
+    setAuthTokenHeader(accessToken);
     setTokens(nextTokens);
     
     // If backend response included user info, set it; otherwise fetch from /me
-    const currentUser = safeUser || (await authService.getMe());
+    let currentUser = safeUser;
+    if (!currentUser) {
+      currentUser = await authService.getMe();
+    }
+
     setUser(currentUser);
     setIsProfileComplete(true);
     setAuthError(null);
@@ -75,7 +84,6 @@ export const AuthProvider = ({ children }) => {
   };
 
   const login = async (email, password) => {
-    setIsLoading(true);
     setAuthError(null);
     try {
       const authData = await authService.login({ email, password });
@@ -84,13 +92,10 @@ export const AuthProvider = ({ children }) => {
       const formatted = formatApiError(err);
       setAuthError(formatted);
       throw formatted;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const signup = async (username, email, password) => {
-    setIsLoading(true);
     setAuthError(null);
     try {
       const authData = await authService.signup({ username, email, password });
@@ -99,8 +104,6 @@ export const AuthProvider = ({ children }) => {
       const formatted = formatApiError(err);
       setAuthError(formatted);
       throw formatted;
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -108,6 +111,7 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(true);
     try {
       await tokenStorage.clearTokens();
+      setAuthTokenHeader(null);
       setTokens(null);
       setUser(null);
       setAuthError(null);
@@ -131,6 +135,7 @@ export const AuthProvider = ({ children }) => {
       tokenStorage.saveRefreshToken(nextTokens.refreshToken),
     ]);
 
+    setAuthTokenHeader(nextTokens.accessToken);
     setTokens(nextTokens);
     return nextTokens.accessToken;
   };

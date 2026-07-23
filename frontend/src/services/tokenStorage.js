@@ -4,61 +4,67 @@ import { Platform } from 'react-native';
 const ACCESS_TOKEN_KEY = 'safetours_access_token';
 const REFRESH_TOKEN_KEY = 'safetours_refresh_token';
 
-// In-memory fallback if SecureStore and localStorage are both unavailable
+// Synchronous in-memory cache to prevent async storage retrieval lag
 let inMemoryAccessToken = null;
 let inMemoryRefreshToken = null;
 
 const isWeb = Platform.OS === 'web';
 
 const setItem = async (key, value) => {
+  if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = value;
+  if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = value;
+
   try {
     if (isWeb) {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.setItem(key, value);
-      } else {
-        if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = value;
-        if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = value;
       }
     } else {
       await SecureStore.setItemAsync(key, value);
     }
   } catch (error) {
-    console.warn(`SecureStore setItem failed for ${key}, falling back to memory:`, error);
-    if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = value;
-    if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = value;
+    console.warn(`SecureStore setItem failed for ${key}, using memory fallback:`, error);
   }
 };
 
 const getItem = async key => {
+  const cachedValue = key === ACCESS_TOKEN_KEY ? inMemoryAccessToken : inMemoryRefreshToken;
+  if (cachedValue) return cachedValue;
+
   try {
     if (isWeb) {
       if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
+        const val = window.localStorage.getItem(key);
+        if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = val;
+        if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = val;
+        return val;
       }
-      return key === ACCESS_TOKEN_KEY ? inMemoryAccessToken : inMemoryRefreshToken;
+      return cachedValue;
     }
-    return await SecureStore.getItemAsync(key);
+    const val = await SecureStore.getItemAsync(key);
+    if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = val;
+    if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = val;
+    return val;
   } catch (error) {
-    console.warn(`SecureStore getItem failed for ${key}, checking fallback:`, error);
-    return key === ACCESS_TOKEN_KEY ? inMemoryAccessToken : inMemoryRefreshToken;
+    console.warn(`SecureStore getItem failed for ${key}, using memory fallback:`, error);
+    return cachedValue;
   }
 };
 
 const deleteItem = async key => {
+  if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = null;
+  if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = null;
+
   try {
     if (isWeb) {
       if (typeof window !== 'undefined' && window.localStorage) {
         window.localStorage.removeItem(key);
       }
-      if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = null;
-      if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = null;
     } else {
       await SecureStore.deleteItemAsync(key);
     }
   } catch (error) {
     console.warn(`SecureStore deleteItem failed for ${key}:`, error);
-    if (key === ACCESS_TOKEN_KEY) inMemoryAccessToken = null;
-    if (key === REFRESH_TOKEN_KEY) inMemoryRefreshToken = null;
   }
 };
 
@@ -78,8 +84,8 @@ export const tokenStorage = {
     return await getItem(REFRESH_TOKEN_KEY);
   },
   clearTokens: async () => {
-    await Promise.all([deleteItem(ACCESS_TOKEN_KEY), deleteItem(REFRESH_TOKEN_KEY)]);
     inMemoryAccessToken = null;
     inMemoryRefreshToken = null;
+    await Promise.all([deleteItem(ACCESS_TOKEN_KEY), deleteItem(REFRESH_TOKEN_KEY)]);
   },
 };
