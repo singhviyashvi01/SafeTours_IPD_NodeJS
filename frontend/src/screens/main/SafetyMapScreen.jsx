@@ -1,28 +1,162 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, TextInput, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, Linking } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import * as Location from 'expo-location';
+import { MapComponent } from '../../components/MapComponent';
 
 const { width, height } = Dimensions.get('window');
+
+// Default fallback region centered on Plaza Mayor
+const DEFAULT_REGION = {
+    latitude: 40.416775,
+    longitude: -3.703790,
+    latitudeDelta: 0.015,
+    longitudeDelta: 0.015,
+};
 
 export const SafetyMapScreen = () => {
     const navigation = useNavigation();
     const [searchQuery, setSearchQuery] = useState('');
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
+    
+    // Map states
+    const [userLocation, setUserLocation] = useState(null);
+    const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
+    const [mapType, setMapType] = useState('standard');
+    
+    // Location and permission states
+    const [permissionStatus, setPermissionStatus] = useState('checking'); // checking, granted, denied, permanently_denied, disabled, error
+    const [isLoadingLocation, setIsLoadingLocation] = useState(false);
+    const [errorMessage, setErrorMessage] = useState(null);
+
+    const mapRef = useRef(null);
+
+    // Initial check/request on mount
+    useEffect(() => {
+        requestLocationPermission();
+    }, []);
+
+    const requestLocationPermission = async () => {
+        try {
+            setPermissionStatus('checking');
+            setErrorMessage(null);
+
+            // Check if GPS is enabled on the device
+            const servicesEnabled = await Location.hasServicesEnabledAsync();
+            if (!servicesEnabled) {
+                setPermissionStatus('disabled');
+                setErrorMessage('GPS/location services are disabled. Please enable location services on your device.');
+                return;
+            }
+
+            // Check current permission status
+            const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
+            
+            if (existingStatus === 'granted') {
+                setPermissionStatus('granted');
+                await fetchCurrentLocation();
+                return;
+            }
+
+            // Request permission
+            const { status: requestedStatus } = await Location.requestForegroundPermissionsAsync();
+            if (requestedStatus === 'granted') {
+                setPermissionStatus('granted');
+                await fetchCurrentLocation();
+            } else {
+                const { canAskAgain } = await Location.getForegroundPermissionsAsync();
+                if (!canAskAgain) {
+                    setPermissionStatus('permanently_denied');
+                } else {
+                    setPermissionStatus('denied');
+                }
+            }
+        } catch (error) {
+            console.error('Error requesting location permission:', error);
+            setPermissionStatus('error');
+            setErrorMessage('An unexpected error occurred while requesting location permissions.');
+        }
+    };
+
+    const fetchCurrentLocation = async () => {
+        setIsLoadingLocation(true);
+        setErrorMessage(null);
+        try {
+            const servicesEnabled = await Location.hasServicesEnabledAsync();
+            if (!servicesEnabled) {
+                setPermissionStatus('disabled');
+                setErrorMessage('GPS/location services are disabled. Please enable location services on your device.');
+                setIsLoadingLocation(false);
+                return;
+            }
+
+            const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+
+            const coords = {
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude,
+            };
+
+            setUserLocation(coords);
+
+            const newRegion = {
+                ...coords,
+                latitudeDelta: 0.015,
+                longitudeDelta: 0.015,
+            };
+            setMapRegion(newRegion);
+
+            // Animate map camera to the user location
+            mapRef.current?.animateToRegion(newRegion, 1000);
+            
+            // Set status to granted if it succeeded
+            setPermissionStatus('granted');
+        } catch (error) {
+            console.error('Error fetching current location:', error);
+            setErrorMessage('Could not retrieve your current location. Please check your signal and try again.');
+        } finally {
+            setIsLoadingLocation(false);
+        }
+    };
+
+    const handleRecenter = async () => {
+        if (permissionStatus !== 'granted') {
+            await requestLocationPermission();
+            return;
+        }
+
+        if (userLocation) {
+            const targetRegion = {
+                ...userLocation,
+                latitudeDelta: 0.015,
+                longitudeDelta: 0.015,
+            };
+            mapRef.current?.animateToRegion(targetRegion, 1000);
+        } else {
+            await fetchCurrentLocation();
+        }
+    };
+
+    const toggleMapType = () => {
+        setMapType(prev => prev === 'standard' ? 'hybrid' : 'standard');
+    };
 
     return (
-        <Screen style={styles.container}>
-            {/* Map Placeholder Image Background */}
-            <Image 
-                source={{ uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?auto=format&fit=crop&q=80&w=1200' }} 
-                style={styles.mapPlaceholder} 
-                resizeMode="cover"
+        <Screen style={styles.container} isSafe={false}>
+            {/* Map Component */}
+            <MapComponent 
+                ref={mapRef}
+                region={mapRegion}
+                onRegionChangeComplete={(region) => setMapRegion(region)}
+                userLocation={userLocation}
+                mapType={mapType}
             />
-            {/* Dark overlay for map readability */}
-            <View style={styles.mapOverlay} />
 
             {/* Top Search Bar */}
             <View style={styles.topSearchContainer}>
@@ -43,8 +177,14 @@ export const SafetyMapScreen = () => {
                 {/* Connection Status Row */}
                 <View style={styles.statusRow}>
                     <View style={styles.statusChip}>
-                        <Ionicons name="cloud-offline" size={16} color="green" />
-                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>Offline Maps</Text>
+                        <Ionicons 
+                            name={permissionStatus === 'granted' ? "shield-checkmark" : "warning"} 
+                            size={16} 
+                            color={permissionStatus === 'granted' ? "green" : colors.error} 
+                        />
+                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
+                            {permissionStatus === 'granted' ? "GPS Active" : "Location Required"}
+                        </Text>
                     </View>
                     <View style={styles.statusChip}>
                         <Ionicons name="cellular" size={16} color="green" />
@@ -55,13 +195,17 @@ export const SafetyMapScreen = () => {
 
             {/* Right Floating Actions */}
             <View style={styles.floatingActionsRight}>
-                <TouchableOpacity style={styles.fabSmall}>
+                <TouchableOpacity style={styles.fabSmall} onPress={handleRecenter}>
                     <Ionicons name="locate" size={24} color={colors['on-surface-variant']} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fabSmall}>
-                    <Ionicons name="refresh" size={24} color={colors['on-surface-variant']} />
+                <TouchableOpacity style={styles.fabSmall} onPress={fetchCurrentLocation}>
+                    {isLoadingLocation ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                        <Ionicons name="refresh" size={24} color={colors['on-surface-variant']} />
+                    )}
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fabSmall}>
+                <TouchableOpacity style={styles.fabSmall} onPress={toggleMapType}>
                     <Ionicons name="layers" size={24} color={colors['on-surface-variant']} />
                 </TouchableOpacity>
 
@@ -91,6 +235,53 @@ export const SafetyMapScreen = () => {
             <TouchableOpacity style={styles.sosFab} onPress={() => navigation.navigate('SOS')}>
                 <Ionicons name="warning" size={32} color={colors['on-error']} />
             </TouchableOpacity>
+
+            {/* Location Permission Fallback Banner Overlay */}
+            {permissionStatus !== 'granted' && (
+                <View style={styles.permissionOverlay}>
+                    <View style={styles.permissionCard}>
+                        <View style={styles.permissionIconContainer}>
+                            <Ionicons 
+                                name={permissionStatus === 'disabled' ? "location-outline" : "lock-closed-outline"} 
+                                size={32} 
+                                color={colors.primary} 
+                            />
+                        </View>
+                        <Text variant="headlineSm" style={styles.permissionTitle}>
+                            {permissionStatus === 'checking' && "Checking Location Status..."}
+                            {permissionStatus === 'disabled' && "Location Services Disabled"}
+                            {permissionStatus === 'denied' && "Location Access Required"}
+                            {permissionStatus === 'permanently_denied' && "Permission Permanently Denied"}
+                            {permissionStatus === 'error' && "Location Error"}
+                        </Text>
+                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={styles.permissionMessage}>
+                            {permissionStatus === 'checking' && "Please wait while we establish location permissions."}
+                            {permissionStatus === 'disabled' && "GPS/Location services are disabled on your device. Please enable location to find safe zones around you."}
+                            {permissionStatus === 'denied' && "SafeTours requires access to your location to display your position and navigate safely."}
+                            {permissionStatus === 'permanently_denied' && "Location permission was permanently denied. Please navigate to settings to grant location access manually."}
+                            {permissionStatus === 'error' && (errorMessage || "An unexpected error occurred while loading map coordinates.")}
+                        </Text>
+                        
+                        {permissionStatus !== 'checking' && (
+                            <TouchableOpacity 
+                                style={styles.permissionButton} 
+                                onPress={
+                                    permissionStatus === 'permanently_denied' 
+                                        ? () => Linking.openSettings() 
+                                        : requestLocationPermission
+                                }
+                            >
+                                <Text variant="labelLg" color={colors['on-primary']} style={{ fontWeight: 'bold' }}>
+                                    {permissionStatus === 'permanently_denied' ? "Open Settings" : "Grant Permission"}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
+                        {permissionStatus === 'checking' && (
+                            <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: spacing.md }} />
+                        )}
+                    </View>
+                </View>
+            )}
 
             {/* Bottom Sheet */}
             <View style={[styles.bottomSheet, bottomSheetExpanded && styles.bottomSheetExpanded]}>
@@ -158,19 +349,9 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
     },
-    mapPlaceholder: {
-        ...StyleSheet.absoluteFillObject,
-        width: width,
-        height: height,
-        opacity: 0.6,
-    },
-    mapOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(255, 248, 246, 0.2)', // light overlay
-    },
     topSearchContainer: {
         position: 'absolute',
-        top: spacing.xl,
+        top: spacing.xl + 20, // push below status bar
         left: spacing.md,
         right: spacing.md,
         zIndex: 10,
@@ -178,7 +359,7 @@ const styles = StyleSheet.create({
     searchBar: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
         borderRadius: shapes.roundedPill,
         paddingHorizontal: spacing.md,
         height: 56,
@@ -208,7 +389,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: shapes.roundedPill,
@@ -217,7 +398,7 @@ const styles = StyleSheet.create({
     },
     floatingActionsRight: {
         position: 'absolute',
-        top: 140,
+        top: 180,
         right: spacing.md,
         alignItems: 'flex-end',
         gap: spacing.sm,
@@ -240,7 +421,7 @@ const styles = StyleSheet.create({
     },
     legendContainer: {
         marginTop: spacing.sm,
-        backgroundColor: 'rgba(255, 255, 255, 0.9)',
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
         padding: spacing.md,
         borderRadius: 20,
         shadowColor: '#000',
@@ -377,5 +558,57 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
+    },
+    permissionOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(33, 26, 22, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: spacing.lg,
+        zIndex: 50,
+    },
+    permissionCard: {
+        backgroundColor: colors.surface,
+        borderRadius: shapes.roundedLg,
+        padding: spacing.lg,
+        alignItems: 'center',
+        width: '100%',
+        maxWidth: 340,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.25,
+        shadowRadius: 15,
+        elevation: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.3)',
+    },
+    permissionIconContainer: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: 'rgba(182, 115, 73, 0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    permissionTitle: {
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: spacing.sm,
+        color: colors.primary,
+    },
+    permissionMessage: {
+        textAlign: 'center',
+        marginBottom: spacing.lg,
+        lineHeight: 20,
+    },
+    permissionButton: {
+        backgroundColor: colors.primary,
+        borderRadius: shapes.roundedPill,
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
     },
 });
