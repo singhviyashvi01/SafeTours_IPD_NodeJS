@@ -1,12 +1,35 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { tokenStorage } from './tokenStorage';
 
-// Base URL configuration for Expo Dev / Web / Android Emulator / Production
+// Helper to extract Metro bundler host IP when running via Expo Go (on physical phone or emulator)
+const getMetroHostIp = () => {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    Constants.manifest?.debuggerHost ||
+    Constants.manifest2?.extra?.expoGo?.developer?.tool;
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+      return ip;
+    }
+  }
+  return null;
+};
+
+// Base URL configuration for Expo Dev / Web / Physical Mobile Device / Android Emulator / Production
 const getBaseUrl = () => {
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
+
+  // Auto-detect host machine IP when app is scanned on physical phone via Expo Go
+  const metroHost = getMetroHostIp();
+  if (metroHost) {
+    return `http://${metroHost}:5001/api`;
+  }
+
   if (Platform.OS === 'android') {
     return 'http://10.0.2.2:5001/api';
   }
@@ -14,6 +37,7 @@ const getBaseUrl = () => {
 };
 
 export const BASE_URL = getBaseUrl();
+console.log('🔗 [SafeTours API] Configured BASE_URL:', BASE_URL);
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
