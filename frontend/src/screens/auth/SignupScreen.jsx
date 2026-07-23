@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -7,74 +7,131 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { Input } from '../../components/Input';
 import { Button } from '../../components/Button';
+import { Toast } from '../../components/Toast';
 import { colors, spacing } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-// import { authService } from '../../services/auth'; // bypassed for UI testing
+
 const signupSchema = z.object({
-    name: z.string().min(1, 'Name is required'),
-    email: z.string().min(1, 'Email is required'),
-    password: z.string().min(1, 'Password is required'),
+  username: z
+    .string()
+    .min(3, 'Username must be at least 3 characters')
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
+  email: z.string().min(1, 'Email is required').email('Please enter a valid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
 });
+
 export const SignupScreen = () => {
-    const navigation = useNavigation();
-    const { signup } = useAuth();
-    const [isLoading, setIsLoading] = React.useState(false);
-    const { control, handleSubmit } = useForm({
-        resolver: zodResolver(signupSchema),
-    });
-    const onSubmit = async (data) => {
-        // TEMP: bypass auth for UI testing — set a mock user to pass the auth guard
-        setIsLoading(true);
-        try {
-            await signup(data.name, data.email, data.password);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    return (<Screen style={styles.container}>
+  const navigation = useNavigation();
+  const { signup, isLoading } = useAuth();
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { control, handleSubmit, setError } = useForm({
+    resolver: zodResolver(signupSchema),
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+    },
+  });
+
+  const onSubmit = async data => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      await signup(data.username.trim(), data.email.trim(), data.password);
+    } catch (err) {
+      if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+        Object.entries(err.fieldErrors).forEach(([field, msg]) => {
+          if (field === 'username' || field === 'email' || field === 'password') {
+            setError(field, { type: 'server', message: msg });
+          }
+        });
+      }
+      setErrorMessage(err.message || 'Signup failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isBusy = isSubmitting || isLoading;
+
+  return (
+    <Screen style={styles.container}>
+      <Toast message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} />
+
       <View style={styles.header}>
         <Text variant="headlineLg" style={styles.title}>Create Account</Text>
-        <Text variant="bodyMd" color={colors.textSecondary}>Join SafeTours today</Text>
+        <Text variant="bodyMd" color={colors.textSecondary}>Join SafeTours today for a safer travel experience</Text>
       </View>
       
       <View style={styles.form}>
-        <Input control={control} name="name" label="Full Name" placeholder="Jane Doe"/>
-        <Input control={control} name="email" label="Email Address" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none"/>
-        <Input control={control} name="password" label="Password" placeholder="••••••••" secureTextEntry/>
+        <Input
+          control={control}
+          name="username"
+          label="Username"
+          placeholder="johndoe"
+          autoCapitalize="none"
+          editable={!isBusy}
+        />
+        <Input
+          control={control}
+          name="email"
+          label="Email Address"
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          editable={!isBusy}
+        />
+        <Input
+          control={control}
+          name="password"
+          label="Password"
+          placeholder="••••••••"
+          secureTextEntry
+          editable={!isBusy}
+        />
       </View>
 
       <View style={styles.footer}>
-        <Button title="Sign Up" onPress={handleSubmit(onSubmit)} isLoading={isLoading}/>
+        <Button
+          title="Sign Up"
+          onPress={handleSubmit(onSubmit)}
+          isLoading={isBusy}
+          disabled={isBusy}
+        />
         <View style={styles.loginContainer}>
           <Text variant="bodyMd" color={colors.textSecondary}>Already have an account? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+          <TouchableOpacity onPress={() => navigation.navigate('Login')} disabled={isBusy}>
             <Text variant="labelLg" color={colors.primary}>Log In</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </Screen>);
+    </Screen>
+  );
 };
+
 const styles = StyleSheet.create({
-    container: {
-        padding: spacing.containerMargin,
-    },
-    header: {
-        marginTop: spacing.xl,
-        marginBottom: spacing.xxl,
-    },
-    title: {
-        marginBottom: spacing.xs,
-    },
-    form: {
-        flex: 1,
-    },
-    footer: {
-        paddingBottom: spacing.lg,
-    },
-    loginContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginTop: spacing.lg,
-    }
+  container: {
+    padding: spacing.containerMargin,
+  },
+  header: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.xxl,
+  },
+  title: {
+    marginBottom: spacing.xs,
+  },
+  form: {
+    flex: 1,
+  },
+  footer: {
+    paddingBottom: spacing.lg,
+  },
+  loginContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: spacing.lg,
+  },
 });

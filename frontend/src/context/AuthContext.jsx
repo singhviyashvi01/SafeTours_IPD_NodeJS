@@ -1,75 +1,164 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { authService } from '../services/auth';
-import { profileService } from '../services/profile';
 import { tokenStorage } from '../services/tokenStorage';
+import { setUnauthorizedCallback, formatApiError } from '../services/apiClient';
 
 const AuthContext = createContext({});
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [tokens, setTokens] = useState(null);
-  const [isProfileComplete, setIsProfileComplete] = useState(false);
+  const [isProfileComplete, setIsProfileComplete] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
 
-  const loadProfileCompleteness = async () => {
-    const result = await profileService.getCompleteness();
-    setIsProfileComplete(result.isComplete);
-    return result.isComplete;
-  };
+  const clearError = () => setAuthError(null);
 
+  const handleUnauthorized = useCallback(async () => {
+    await tokenStorage.clearTokens();
+    setTokens(null);
+    setUser(null);
+    setIsLoading(false);
+  }, []);
+
+  // Restore session on app launch
   useEffect(() => {
+    setUnauthorizedCallback(handleUnauthorized);
+
     const restoreSession = async () => {
       try {
-        const [accessToken, refreshToken] = await Promise.all([tokenStorage.getAccessToken(), tokenStorage.getRefreshToken()]);
-        if (!accessToken || !refreshToken) return;
-        const authenticatedUser = await authService.getMe(accessToken);
+        const [accessToken, refreshToken] = await Promise.all([
+          tokenStorage.getAccessToken(),
+          tokenStorage.getRefreshToken(),
+        ]);
+
+        if (!accessToken) {
+          setIsLoading(false);
+          return;
+        }
+
+        // Fetch current user from backend
+        const authenticatedUser = await authService.getMe();
         setTokens({ accessToken, refreshToken });
         setUser(authenticatedUser);
         setIsProfileComplete(true);
-      } catch {
+      } catch (err) {
+        console.warn('Session restoration failed:', err?.message || err);
         await tokenStorage.clearTokens();
+        setTokens(null);
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
-    restoreSession();
-  }, []);
 
-  const establishSession = async authResponse => {
-    const nextTokens = { accessToken: authResponse.accessToken, refreshToken: authResponse.refreshToken };
-    await Promise.all([tokenStorage.saveAccessToken(nextTokens.accessToken), tokenStorage.saveRefreshToken(nextTokens.refreshToken)]);
-    const authenticatedUser = authResponse.user || await authService.getMe(nextTokens.accessToken);
+    restoreSession();
+  }, [handleUnauthorized]);
+
+  const establishSession = async authData => {
+    const { user: safeUser, accessToken, refreshToken } = authData;
+    const nextTokens = { accessToken, refreshToken };
+
+    await Promise.all([
+      tokenStorage.saveAccessToken(accessToken),
+      tokenStorage.saveRefreshToken(refreshToken),
+    ]);
+
     setTokens(nextTokens);
-    setUser(authenticatedUser);
-    // Mock authentication always enters the application directly.
+    
+    // If backend response included user info, set it; otherwise fetch from /me
+    const currentUser = safeUser || (await authService.getMe());
+    setUser(currentUser);
     setIsProfileComplete(true);
+    setAuthError(null);
+    return currentUser;
   };
 
   const login = async (email, password) => {
     setIsLoading(true);
-    try { await establishSession(await authService.login({ email, password })); }
-    finally { setIsLoading(false); }
+    setAuthError(null);
+    try {
+      const authData = await authService.login({ email, password });
+      return await establishSession(authData);
+    } catch (err) {
+      const formatted = formatApiError(err);
+      setAuthError(formatted);
+      throw formatted;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const signup = async (username, email, password) => {
     setIsLoading(true);
-    try { await establishSession(await authService.signup({ username, email, password })); }
-    finally { setIsLoading(false); }
+    setAuthError(null);
+    try {
+      const authData = await authService.signup({ username, email, password });
+      return await establishSession(authData);
+    } catch (err) {
+      const formatted = formatApiError(err);
+      setAuthError(formatted);
+      throw formatted;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    setIsLoading(true);
+    try {
+      await tokenStorage.clearTokens();
+      setTokens(null);
+      setUser(null);
+      setAuthError(null);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const refreshAccessToken = async () => {
-    if (!tokens?.refreshToken) throw new Error('No refresh token is available.');
-    const refreshed = await authService.refreshToken(tokens.refreshToken);
-    const nextTokens = { accessToken: refreshed.accessToken, refreshToken: refreshed.refreshToken || tokens.refreshToken };
-    await Promise.all([tokenStorage.saveAccessToken(nextTokens.accessToken), tokenStorage.saveRefreshToken(nextTokens.refreshToken)]);
+    const currentRefresh = (await tokenStorage.getRefreshToken()) || tokens?.refreshToken;
+    if (!currentRefresh) throw new Error('No refresh token available');
+
+    const refreshed = await authService.refreshToken(currentRefresh);
+    const nextTokens = {
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken || currentRefresh,
+    };
+
+    await Promise.all([
+      tokenStorage.saveAccessToken(nextTokens.accessToken),
+      tokenStorage.saveRefreshToken(nextTokens.refreshToken),
+    ]);
+
     setTokens(nextTokens);
     return nextTokens.accessToken;
   };
 
-  const completeProfile = async () => setIsProfileComplete(await loadProfileCompleteness());
-  const logout = async () => { await tokenStorage.clearTokens(); setTokens(null); setUser(null); setIsProfileComplete(false); };
-
-  return <AuthContext.Provider value={{ currentUser: user, user, isAuthenticated: Boolean(user), accessToken: tokens?.accessToken || null, refreshToken: tokens?.refreshToken || null, tokens, isProfileComplete, isLoading, login, signup, logout, refreshAccessToken, completeProfile, setUser }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        currentUser: user,
+        isAuthenticated: Boolean(user),
+        accessToken: tokens?.accessToken || null,
+        refreshToken: tokens?.refreshToken || null,
+        tokens,
+        isProfileComplete,
+        isLoading,
+        loading: isLoading,
+        authError,
+        clearError,
+        login,
+        signup,
+        logout,
+        refreshAccessToken,
+        setUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => useContext(AuthContext);

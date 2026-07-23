@@ -1,27 +1,28 @@
-/**
- * API Communication Utilities
- * Prepares structure for Node.js/Express and Socket.IO integrations.
- */
+import { BASE_URL, apiClient } from '../services/apiClient';
 
-export const BASE_URL = 'https://api.safetours.example.com';
+export { BASE_URL };
 
-// Ready for a real HTTP client: services can use this to attach Bearer tokens.
-export const createAuthorizationHeaders = accessToken => accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+export const createAuthorizationHeaders = accessToken => 
+  accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 
-// Standard REST GET Request
 export const apiGet = async (endpoint, params = {}) => {
-    // Placeholder fetch wrapper
-    return { data: null, error: null };
+  try {
+    const response = await apiClient.get(endpoint, { params });
+    return { data: response.data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 };
 
-// Standard REST POST Request
 export const apiPost = async (endpoint, payload = {}) => {
-    // Placeholder fetch wrapper
-    return { data: null, error: null };
+  try {
+    const response = await apiClient.post(endpoint, payload);
+    return { data: response.data, error: null };
+  } catch (error) {
+    return { data: null, error };
+  }
 };
 
-// Initialize WebSocket connection for SOS and live tracking
 export const initSocketConnection = () => {
-    // Placeholder for Socket.IO init
-    console.log('Socket initialized');
+  console.log('Socket initialized with base URL:', BASE_URL);
 };

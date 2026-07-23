@@ -31,7 +31,16 @@ app.use(helmet());
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || '*',
+    origin: (origin, callback) => {
+      if (!origin || process.env.NODE_ENV !== 'production') {
+        return callback(null, true);
+      }
+      const allowedOrigins = (process.env.CLIENT_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
+      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );

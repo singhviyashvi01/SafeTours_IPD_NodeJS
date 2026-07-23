@@ -26,9 +26,30 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Password is required'],
       minlength: [6, 'Password must be at least 6 characters'],
     },
+    name: { type: String },
+    phone: { type: String },
+    nationality: { type: String },
+    languages: [{ type: String }],
+    gender: { type: String },
+    dateOfBirth: { type: String },
+    profileImage: { type: String },
+    bloodGroup: { type: String },
+    address: {
+      type: Object,
+      default: {},
+    },
+    medicalInfo: {
+      type: Object,
+      default: {},
+    },
+    emergencySettings: {
+      type: Object,
+      default: {},
+    },
   },
   {
     timestamps: true,
+    strict: false,
   }
 );
 
