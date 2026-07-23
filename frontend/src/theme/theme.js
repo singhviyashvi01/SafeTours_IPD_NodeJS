@@ -1,0 +1,101 @@
+export const colors = {
+    "surface-tint": "#914c22",
+    "on-primary": "#ffffff",
+    "on-background": "#211a16",
+    "secondary-container": "#ff9a66",
+    "surface": "#fff8f6",
+    "on-error": "#ffffff",
+    "on-secondary-fixed": "#341100",
+    "surface-container-lowest": "#ffffff",
+    "tertiary-container": "#46aeb4",
+    "tertiary-fixed": "#8ff2f8",
+    "on-primary-fixed": "#331100",
+    "on-tertiary-fixed-variant": "#004f53",
+    "tertiary": "#00696e",
+    "on-tertiary-fixed": "#002021",
+    "on-tertiary": "#ffffff",
+    "inverse-on-surface": "#fdeee7",
+    "outline-variant": "#d9c2b7",
+    "inverse-surface": "#372f2b",
+    "on-primary-fixed-variant": "#73350c",
+    "surface-container": "#faebe4",
+    "surface-container-highest": "#eedfd9",
+    "on-secondary-container": "#763002",
+    "background": "#fff8f6",
+    "primary-fixed-dim": "#ffb68f",
+    "secondary-fixed": "#ffdbcb",
+    "surface-bright": "#fff8f6",
+    "surface-dim": "#e6d7d1",
+    "on-surface-variant": "#54433b",
+    "error-container": "#ffdad6",
+    "secondary-fixed-dim": "#ffb692",
+    "error": "#ba1a1a",
+    "on-secondary-fixed-variant": "#783104",
+    "surface-container-high": "#f4e5df",
+    "on-error-container": "#93000a",
+    "surface-variant": "#eedfd9",
+    "secondary": "#97481b",
+    "surface-container-low": "#fff1eb",
+    "on-tertiary-container": "#003d40",
+    "on-surface": "#211a16",
+    "tertiary-fixed-dim": "#72d6dc",
+    "on-primary-container": "#5e2600",
+    "inverse-primary": "#ffb68f",
+    "primary-container": "#df8b5c",
+    "on-secondary": "#ffffff",
+    "primary-fixed": "#ffdbca",
+    "primary": "#914c22",
+    "outline": "#86736a",
+    
+    // Legacy maps to prevent breaking other files during migration
+    primaryDark: '#C96F3F',
+    emergency: '#EF4444',
+    textPrimary: '#211A16',
+    textSecondary: '#54433b',
+    white: '#FFFFFF',
+    alertBackground: '#ffdad6',
+    alertAccent: '#ba1a1a',
+};
+export const typography = {
+    fontFamily: 'Inter',
+    sizes: {
+        headlineLg: 32,
+        headlineMd: 24,
+        headlineSm: 20,
+        bodyLg: 18,
+        bodyMd: 16,
+        labelLg: 14,
+        labelMd: 12,
+    },
+    weights: {
+        regular: '400',
+        medium: '500',
+        semiBold: '600',
+        bold: '700',
+    },
+};
+export const spacing = {
+    xs: 4,
+    sm: 8,
+    md: 16,
+    lg: 24,
+    xl: 32,
+    xxl: 48,
+    gutter: 16,
+    containerMargin: 20,
+};
+export const shapes = {
+    roundedSm: 8,
+    roundedMd: 16, // Inputs
+    roundedLg: 24, // Standard cards (xl in standard tailwind, we call it Lg here for cards)
+    roundedPill: 9999, // Primary actions
+};
+export const shadows = {
+    ambient: {
+        shadowColor: colors.primary,
+        shadowOffset: { width: 0, height: -5 },
+        shadowOpacity: 0.08,
+        shadowRadius: 20,
+        elevation: 2,
+    }
+};
