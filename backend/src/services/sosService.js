@@ -4,6 +4,7 @@ const Journey = require('../models/Journey');
 const EmergencyContact = require('../models/EmergencyContact');
 const notificationService = require('./notificationService');
 const ApiError = require('../utils/apiError');
+const logger = require('../utils/logger');
 
 class SOSService {
   /**
@@ -15,7 +16,7 @@ class SOSService {
    * @returns {Promise<Object>} The created SOS history record
    */
   async triggerSOS(userId, data, type) {
-    const { locationId, journeyId, reason } = data;
+    const { locationId, journeyId, reason, triggerSource, dangerZoneId, riskLevel } = data;
 
     // 1. Business Logic: Check if the user already has an active SOS
     const existingActiveSOS = await SOSHistory.findOne({ user: userId, status: 'active' }).exec();
@@ -45,8 +46,8 @@ class SOSService {
       journeyDoc = await Journey.findOne({ userId, status: 'ACTIVE' }).exec();
     }
 
-    // For automatic SOS, a journey is typically required by business logic
-    if (type === 'automatic' && !journeyDoc) {
+    // For standard automatic SOS (non-geofence), a journey is typically required by business logic
+    if (type === 'automatic' && !journeyDoc && triggerSource !== 'GEOFENCE') {
       throw new ApiError(400, 'An active journey is required to trigger an automatic SOS.');
     }
 
@@ -63,10 +64,18 @@ class SOSService {
       journey: journeyDoc ? journeyDoc._id : null,
       location: locationDoc._id,
       type,
+      triggerSource: triggerSource || (type === 'automatic' ? 'AUTOMATIC' : 'MANUAL'),
+      dangerZone: dangerZoneId || null,
+      riskLevel: riskLevel || null,
       status: 'active',
       triggeredAt: new Date(),
       reason: reason || '',
       notifiedContacts: notifiedContactIds,
+      metadata: {
+        dangerZoneId: dangerZoneId || null,
+        riskLevel: riskLevel || null,
+        triggerSource: triggerSource || (type === 'automatic' ? 'AUTOMATIC' : 'MANUAL'),
+      },
     });
 
     // 6. Log a notification record for this SOS trigger
@@ -79,6 +88,7 @@ class SOSService {
       metadata: {
         sosId: sosRecord._id,
         sosType: type,
+        triggerSource: sosRecord.triggerSource,
         locationId: locationDoc._id,
         coordinates: locationDoc.location?.coordinates ?? null,
         journeyId: journeyDoc ? journeyDoc._id : null,
@@ -90,6 +100,95 @@ class SOSService {
     });
 
     return sosRecord;
+  }
+
+  /**
+   * Triggers an automatic SOS from Geofencing detection engine.
+   * Duplicate prevention: checks if user already has an active SOS.
+   *
+   * @param {string|Object} userId - User ID
+   * @param {Object} geofenceData - { latitude, longitude, zoneId, riskLevel, reason }
+   * @returns {Promise<Object>} { triggered: boolean, sos?: Object, reason?: string }
+   */
+  async triggerGeofenceSOS(userId, { latitude, longitude, zoneId, riskLevel, reason }) {
+    try {
+      // 1. Duplicate Prevention: Check if user already has an active SOS
+      const existingActiveSOS = await SOSHistory.findOne({ user: userId, status: 'active' }).exec();
+      if (existingActiveSOS) {
+        logger.info(`[SOSService.triggerGeofenceSOS] Active SOS already exists (${existingActiveSOS._id}) for user '${userId}'. Skipping duplicate creation.`);
+        return { triggered: false, reason: 'Duplicate active SOS prevented', sos: existingActiveSOS };
+      }
+
+      // 2. Fetch or create Location record for coordinate snapshot
+      let locationDoc = await Location.findOne({ userId }).sort({ timestamp: -1 }).exec();
+      if (!locationDoc) {
+        locationDoc = await Location.create({
+          userId,
+          location: {
+            type: 'Point',
+            coordinates: [Number(longitude), Number(latitude)],
+          },
+          accuracy: 5,
+          timestamp: new Date(),
+        });
+      }
+
+      // 3. Fetch active Journey (if any)
+      const journeyDoc = await Journey.findOne({ userId, status: 'ACTIVE' }).exec();
+
+      // 4. Fetch emergency contacts to notify
+      const contacts = await EmergencyContact.find({ user: userId }).sort({ priority: 1, createdAt: -1 }).exec();
+      const notifiedContactIds = contacts ? contacts.map((c) => c._id) : [];
+
+      // 5. Create SOSHistory record with triggerSource = "GEOFENCE"
+      const sosRecord = await SOSHistory.create({
+        user: userId,
+        journey: journeyDoc ? journeyDoc._id : null,
+        location: locationDoc._id,
+        type: 'automatic',
+        triggerSource: 'GEOFENCE',
+        dangerZone: zoneId || null,
+        riskLevel: riskLevel || 'HIGH',
+        status: 'active',
+        triggeredAt: new Date(),
+        reason: reason || `Automatic SOS triggered upon entering ${riskLevel} Risk Area`,
+        notifiedContacts: notifiedContactIds,
+        metadata: {
+          dangerZoneId: zoneId || null,
+          riskLevel: riskLevel || 'HIGH',
+          triggerSource: 'GEOFENCE',
+          coordinates: [Number(longitude), Number(latitude)],
+        },
+      });
+
+      logger.info(`[SOSService.triggerGeofenceSOS] Automatic Geofence SOS triggered for user '${userId}': SOS ID = ${sosRecord._id}`);
+
+      // 6. Notification dispatch (fire-and-forget)
+      notificationService
+        .createNotification({
+          userId,
+          type: 'SOS',
+          title: 'Automatic Geofence SOS Alert',
+          message: `Automatic SOS triggered upon entering ${riskLevel} Risk Area.`,
+          metadata: {
+            sosId: sosRecord._id,
+            sosType: 'automatic',
+            triggerSource: 'GEOFENCE',
+            dangerZoneId: zoneId || null,
+            riskLevel: riskLevel || 'HIGH',
+            coordinates: [Number(longitude), Number(latitude)],
+            triggeredAt: sosRecord.triggeredAt,
+          },
+        })
+        .catch((err) => {
+          logger.error('[NotificationService] Failed to create Geofence SOS notification:', err.message);
+        });
+
+      return { triggered: true, sos: sosRecord };
+    } catch (error) {
+      logger.error(`[SOSService.triggerGeofenceSOS] Failed to trigger geofence SOS for user '${userId}':`, error);
+      throw error;
+    }
   }
 
   /**
@@ -130,6 +229,7 @@ class SOSService {
       .populate('location')
       .populate('journey')
       .populate('notifiedContacts')
+      .populate('dangerZone')
       .exec();
   }
 }

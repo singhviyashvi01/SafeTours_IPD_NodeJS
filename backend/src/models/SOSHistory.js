@@ -11,7 +11,7 @@ const sosHistorySchema = new mongoose.Schema(
     journey: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Journey',
-      // Optional — manual SOS can be triggered outside a journey
+      // Optional — manual or geofence SOS can be triggered outside a journey
       default: null,
     },
     location: {
@@ -26,6 +26,21 @@ const sosHistorySchema = new mongoose.Schema(
         message: 'Type must be either "manual" or "automatic"',
       },
       required: [true, 'SOS type is required'],
+    },
+    triggerSource: {
+      type: String,
+      default: 'MANUAL',
+      trim: true,
+      index: true,
+    },
+    dangerZone: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'DangerZone',
+      default: null,
+    },
+    riskLevel: {
+      type: String,
+      default: null,
     },
     status: {
       type: String,
@@ -60,6 +75,10 @@ const sosHistorySchema = new mongoose.Schema(
         ref: 'EmergencyContact',
       },
     ],
+    metadata: {
+      type: Object,
+      default: {},
+    },
   },
   {
     // Mongoose automatically manages createdAt and updatedAt
