@@ -1,5 +1,6 @@
 import React, { memo } from 'react';
-import { View, StyleSheet, SafeAreaView } from 'react-native';
+import { View, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/theme';
 
 export const Screen = memo(({ children, style, isSafe = true, backgroundColor = colors.background, ...props }) => {
