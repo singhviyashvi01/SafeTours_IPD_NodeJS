@@ -13,7 +13,8 @@ import { ContactFormScreen } from '../screens/main/ContactFormScreen';
 import { MedicalIdScreen } from '../screens/main/MedicalIdScreen';
 import { JourneyHistoryScreen } from '../screens/main/JourneyHistoryScreen';
 import { SOSHistoryScreen } from '../screens/main/SOSHistoryScreen';
-import { LiveJourneyScreen } from '../screens/main/LiveJourneyScreen';
+import { JourneyScreen } from '../screens/main/JourneyScreen';
+import { CommunityScreen } from '../screens/main/CommunityScreen';
 import { useAuth } from '../context/AuthContext';
 
 const Stack = createNativeStackNavigator();
@@ -30,7 +31,8 @@ const MainNavigator = () => (
     <Stack.Screen name="MedicalId" component={MedicalIdScreen} />
     <Stack.Screen name="JourneyHistory" component={JourneyHistoryScreen} />
     <Stack.Screen name="SOSHistory" component={SOSHistoryScreen} />
-    <Stack.Screen name="LiveJourney" component={LiveJourneyScreen} />
+    <Stack.Screen name="LiveJourney" component={JourneyScreen} />
+    <Stack.Screen name="Community" component={CommunityScreen} />
   </Stack.Navigator>
 );
 

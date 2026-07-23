@@ -3,7 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { HomeScreen } from '../screens/main/HomeScreen';
 import { SafetyMapScreen } from '../screens/main/SafetyMapScreen';
-import { SOSScreen } from '../screens/main/SOSScreen';
+import { SOSWorkspaceScreen } from '../screens/main/SOSWorkspaceScreen';
 import { AISafetyAssistantScreen } from '../screens/main/AISafetyAssistantScreen';
 import { SettingsScreen } from '../screens/main/SettingsScreen';
 import { colors, shapes } from '../theme/theme';
@@ -46,7 +46,7 @@ export const MainTabs = () => {
             <Tab.Screen name="Map" component={SafetyMapScreen} />
             <Tab.Screen 
                 name="SOS" 
-                component={SOSScreen} 
+                component={SOSWorkspaceScreen}
                 options={{
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="warning" size={24} color={colors.error} />
