@@ -8,6 +8,9 @@ import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { MapComponent, getRiskColors } from '../../components/MapComponent';
 import { dangerZoneService } from '../../services/dangerZoneService';
+import { locationService } from '../../services/locationService';
+import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
+import { LocationStatusModal } from '../../components/LocationStatusModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -26,11 +29,14 @@ export const SafetyMapScreen = () => {
     
     // Map & Location states
     const [userLocation, setUserLocation] = useState(null);
+    const [locationAccuracy, setLocationAccuracy] = useState(10);
+    const [lastUpdateTime, setLastUpdateTime] = useState(null);
     const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
     const [mapType, setMapType] = useState('standard');
     
-    // Permission and location loading states
+    // Tracking & Permission states
     const [permissionStatus, setPermissionStatus] = useState('checking'); // checking, granted, denied, permanently_denied, disabled, error
+    const [trackingActive, setTrackingActive] = useState(false);
     const [isLoadingLocation, setIsLoadingLocation] = useState(false);
     const [errorMessage, setErrorMessage] = useState(null);
 
@@ -41,14 +47,28 @@ export const SafetyMapScreen = () => {
     const [isLoadingDangerZones, setIsLoadingDangerZones] = useState(false);
     const [dangerZoneError, setDangerZoneError] = useState(null);
 
+    // Geofencing UI Feedback Toast
+    const [geofenceToast, setGeofenceToast] = useState(null);
+
+    // Diagnostics Status Modal State
+    const [showStatusModal, setShowStatusModal] = useState(false);
+
     const mapRef = useRef(null);
+    const locationSubscription = useRef(null);
+    const lastSyncedCoords = useRef(null);
 
     // Initial check/request on mount
     useEffect(() => {
         requestLocationPermission();
+
+        return () => {
+            if (locationSubscription.current) {
+                locationSubscription.current.remove();
+            }
+        };
     }, []);
 
-    // Periodic auto-refresh of danger zones (every 30 seconds)
+    // Periodic background refresh for danger zone data (every 30 seconds)
     useEffect(() => {
         if (permissionStatus === 'granted') {
             loadDangerZones();
@@ -56,7 +76,7 @@ export const SafetyMapScreen = () => {
 
         const autoRefreshInterval = setInterval(() => {
             if (permissionStatus === 'granted') {
-                loadDangerZones(null, true); // silent background refresh
+                loadDangerZones(null, true);
             }
         }, 30000);
 
@@ -79,14 +99,14 @@ export const SafetyMapScreen = () => {
             
             if (existingStatus === 'granted') {
                 setPermissionStatus('granted');
-                await fetchCurrentLocation();
+                await startLiveTracking();
                 return;
             }
 
             const { status: requestedStatus } = await Location.requestForegroundPermissionsAsync();
             if (requestedStatus === 'granted') {
                 setPermissionStatus('granted');
-                await fetchCurrentLocation();
+                await startLiveTracking();
             } else {
                 const { canAskAgain } = await Location.getForegroundPermissionsAsync();
                 if (!canAskAgain) {
@@ -102,44 +122,104 @@ export const SafetyMapScreen = () => {
         }
     };
 
-    const fetchCurrentLocation = async () => {
+    /**
+     * Start continuous live GPS position watching
+     */
+    const startLiveTracking = async () => {
         setIsLoadingLocation(true);
-        setErrorMessage(null);
         try {
-            const servicesEnabled = await Location.hasServicesEnabledAsync();
-            if (!servicesEnabled) {
-                setPermissionStatus('disabled');
-                setErrorMessage('GPS/location services are disabled. Please enable location services on your device.');
-                setIsLoadingLocation(false);
-                return;
-            }
-
+            // Get initial location snapshot
             const location = await Location.getCurrentPositionAsync({
                 accuracy: Location.Accuracy.Balanced,
             });
 
-            const coords = {
+            handleNewLocationFix(location);
+
+            // Center initial map camera
+            const initialCoords = {
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude,
             };
-
-            setUserLocation(coords);
-
             const newRegion = {
-                ...coords,
+                ...initialCoords,
                 latitudeDelta: 0.02,
                 longitudeDelta: 0.02,
             };
             setMapRegion(newRegion);
             mapRef.current?.animateToRegion(newRegion, 1000);
-            
+
+            // Subscribe to continuous live location updates
+            if (locationSubscription.current) {
+                locationSubscription.current.remove();
+            }
+
+            locationSubscription.current = await Location.watchPositionAsync(
+                {
+                    accuracy: Location.Accuracy.Balanced,
+                    timeInterval: 5000, // update every 5 seconds
+                    distanceInterval: 10, // update every 10 meters
+                },
+                (loc) => handleNewLocationFix(loc)
+            );
+
+            setTrackingActive(true);
             setPermissionStatus('granted');
-            loadDangerZones(coords);
+            loadDangerZones(initialCoords);
         } catch (error) {
-            console.error('Error fetching current location:', error);
-            setErrorMessage('Could not retrieve your current location. Please check your signal and try again.');
+            console.error('Error starting live tracking:', error);
+            setErrorMessage('Could not establish continuous live tracking. Retrying...');
         } finally {
             setIsLoadingLocation(false);
+        }
+    };
+
+    /**
+     * Handle incoming GPS location fixes smoothly
+     */
+    const handleNewLocationFix = (location) => {
+        if (!location || !location.coords) return;
+
+        const coords = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+        };
+
+        setUserLocation(coords);
+        setLocationAccuracy(location.coords.accuracy || 10);
+        const isoTime = new Date(location.timestamp || Date.now()).toISOString();
+        setLastUpdateTime(isoTime);
+
+        // Geofence check against active danger zones
+        if (dangerZones.length > 0) {
+            const { activeZone, toastMessage } = geofenceManager.evaluateLocation(coords, dangerZones);
+            if (activeZone) {
+                setCurrentZone(activeZone);
+            }
+            if (toastMessage) {
+                setGeofenceToast(toastMessage);
+                setTimeout(() => setGeofenceToast(null), 4000);
+            }
+        }
+
+        // Send location update to backend if moved significantly (> 20 meters)
+        if (
+            !lastSyncedCoords.current ||
+            calculateDistanceMeters(
+                lastSyncedCoords.current.latitude,
+                lastSyncedCoords.current.longitude,
+                coords.latitude,
+                coords.longitude
+            ) > 20
+        ) {
+            lastSyncedCoords.current = coords;
+            locationService.syncLocation({
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                accuracy: location.coords.accuracy,
+                speed: location.coords.speed,
+                heading: location.coords.heading,
+                timestamp: isoTime,
+            });
         }
     };
 
@@ -161,11 +241,15 @@ export const SafetyMapScreen = () => {
             const zones = res.data || [];
             setDangerZones(zones);
 
-            if (zones.length > 0) {
-                const primaryZone = zones[0];
-                setCurrentZone(primaryZone);
+            if (zones.length > 0 && lat && lng) {
+                const { activeZone } = geofenceManager.evaluateLocation({ latitude: lat, longitude: lng }, zones);
+                if (activeZone) {
+                    setCurrentZone(activeZone);
+                } else {
+                    setCurrentZone(zones[0]);
+                }
                 if (!selectedZone) {
-                    setSelectedZone(primaryZone);
+                    setSelectedZone(activeZone || zones[0]);
                 }
             }
         } else {
@@ -189,7 +273,7 @@ export const SafetyMapScreen = () => {
             };
             mapRef.current?.animateToRegion(targetRegion, 1000);
         } else {
-            await fetchCurrentLocation();
+            await startLiveTracking();
         }
     };
 
@@ -201,7 +285,6 @@ export const SafetyMapScreen = () => {
         setSelectedZone(zone);
         setBottomSheetExpanded(true);
 
-        // Extract coordinates to center map
         let latitude = null;
         let longitude = null;
         if (zone.location && Array.isArray(zone.location.coordinates)) {
@@ -248,7 +331,7 @@ export const SafetyMapScreen = () => {
                 onSelectZone={handleSelectZone}
             />
 
-            {/* Top Search Bar */}
+            {/* Top Search & Diagnostics Bar */}
             <View style={styles.topSearchContainer}>
                 <View style={styles.searchBar}>
                     <Ionicons name="search" size={20} color={colors['on-surface-variant']} />
@@ -270,25 +353,36 @@ export const SafetyMapScreen = () => {
                     )}
                 </View>
 
-                {/* Connection & Danger Zone Count Status Row */}
+                {/* Connection, Live Tracking & Diagnostics Trigger Status Row */}
                 <View style={styles.statusRow}>
-                    <View style={styles.statusChip}>
+                    <TouchableOpacity style={styles.statusChip} onPress={() => setShowStatusModal(true)}>
                         <Ionicons 
-                            name={permissionStatus === 'granted' ? "shield-checkmark" : "warning"} 
+                            name={trackingActive ? "radio" : "warning"} 
                             size={16} 
-                            color={permissionStatus === 'granted' ? "green" : colors.error} 
+                            color={trackingActive ? "green" : colors.error} 
                         />
-                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
-                            {permissionStatus === 'granted' ? "GPS Active" : "Location Required"}
+                        <Text variant="labelMd" style={{ color: colors['on-surface'], fontWeight: 'bold' }}>
+                            {trackingActive ? "LIVE TRACKING" : "GPS Required"}
                         </Text>
-                    </View>
-                    <View style={styles.statusChip}>
-                        <Ionicons name="radio" size={16} color={colors.primary} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={styles.statusChip} onPress={() => setShowStatusModal(true)}>
+                        <Ionicons name="hardware-chip-outline" size={16} color={colors.primary} />
                         <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
-                            {isLoadingDangerZones ? "Loading Zones..." : `${dangerZones.length} Zones Active`}
+                            Diagnostics
                         </Text>
-                    </View>
+                    </TouchableOpacity>
                 </View>
+
+                {/* Geofence Event Alert Toast Banner */}
+                {geofenceToast && (
+                    <View style={styles.geofenceToastBanner}>
+                        <Ionicons name="notifications-outline" size={18} color={colors['on-primary']} />
+                        <Text variant="labelLg" style={{ color: colors['on-primary'], fontWeight: 'bold', flex: 1 }}>
+                            {geofenceToast}
+                        </Text>
+                    </View>
+                )}
             </View>
 
             {/* Right Floating Actions */}
@@ -381,7 +475,7 @@ export const SafetyMapScreen = () => {
                 </View>
             )}
 
-            {/* Bottom Sheet */}
+            {/* Bottom Sheet Drawer */}
             <View style={[styles.bottomSheet, bottomSheetExpanded && styles.bottomSheetExpanded]}>
                 <TouchableOpacity 
                     style={styles.sheetHandleContainer}
@@ -390,7 +484,7 @@ export const SafetyMapScreen = () => {
                     <View style={styles.sheetHandle} />
                 </TouchableOpacity>
 
-                {/* Error Banner if Zone Fetch Failed */}
+                {/* Danger Zone Fetch Error Banner */}
                 {dangerZoneError && (
                     <View style={styles.errorBanner}>
                         <Ionicons name="alert-circle" size={20} color={colors.error} />
@@ -512,6 +606,19 @@ export const SafetyMapScreen = () => {
                 {/* Space for bottom nav */}
                 <View style={{ height: 60 }} />
             </View>
+
+            {/* Location Status Diagnostics Modal */}
+            <LocationStatusModal
+                visible={showStatusModal}
+                onClose={() => setShowStatusModal(false)}
+                userLocation={userLocation}
+                accuracy={locationAccuracy}
+                trackingActive={trackingActive}
+                currentZone={currentZone}
+                permissionStatus={permissionStatus}
+                lastUpdateTime={lastUpdateTime}
+                offlineQueueSize={locationService.getOfflineQueueSize()}
+            />
         </Screen>
     );
 };
@@ -567,6 +674,21 @@ const styles = StyleSheet.create({
         borderRadius: shapes.roundedPill,
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.3)',
+    },
+    geofenceToastBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.primary,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+        borderRadius: shapes.roundedPill,
+        marginTop: spacing.sm,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 6,
     },
     floatingActionsRight: {
         position: 'absolute',
