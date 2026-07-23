@@ -15,7 +15,19 @@ export const SettingsScreen = () => {
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
     const [locationPermissions, setLocationPermissions] = useState(true);
     const [profile, setProfile] = useState(null);
-    useEffect(() => { profileService.getProfile().then(setProfile); }, []);
+
+    useEffect(() => {
+        const loadProfile = () => {
+            profileService
+                .getProfile()
+                .then(data => setProfile(data))
+                .catch(() => {});
+        };
+
+        loadProfile();
+        const unsubscribe = navigation.addListener('focus', loadProfile);
+        return unsubscribe;
+    }, [navigation]);
 
     const SettingsRow = ({ icon, title, subtitle, rightElement, onPress }) => (
         <TouchableOpacity 

@@ -101,6 +101,7 @@ const updateProfile = async (userId, updateData) => {
 
   // Update address subdocument
   if (updateData.address && typeof updateData.address === 'object') {
+    if (!user.address) user.address = {};
     const addressFields = ['country', 'state', 'city', 'street', 'postalCode'];
     addressFields.forEach((field) => {
       if (updateData.address[field] !== undefined) {
@@ -129,6 +130,7 @@ const updateMedicalInfo = async (userId, medicalData) => {
 
   // Update medicalInfo subdocument fields
   if (medicalData.medicalInfo && typeof medicalData.medicalInfo === 'object') {
+    if (!user.medicalInfo) user.medicalInfo = {};
     const medicalFields = [
       'allergies',
       'medicalConditions',
@@ -161,6 +163,7 @@ const updateEmergencySettings = async (userId, settingsData) => {
 
   // Update emergencySettings subdocument fields
   if (settingsData.emergencySettings && typeof settingsData.emergencySettings === 'object') {
+    if (!user.emergencySettings) user.emergencySettings = {};
     const settingsFields = [
       'shareLiveLocation',
       'autoSOS',

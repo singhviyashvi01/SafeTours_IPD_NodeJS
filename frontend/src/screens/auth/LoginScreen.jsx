@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -7,70 +7,118 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { Input } from '../../components/Input';
 import { Button } from '../../components/Button';
+import { Toast } from '../../components/Toast';
 import { colors, spacing } from '../../theme/theme';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+
 const loginSchema = z.object({
-    email: z.string().min(1, 'Email is required'),
-    password: z.string().min(1, 'Password is required'),
+  email: z.string().min(1, 'Email is required').email('Please enter a valid email address'),
+  password: z.string().min(1, 'Password is required'),
 });
+
 export const LoginScreen = () => {
-    const navigation = useNavigation();
-    const { login, isLoading } = useAuth();
-    const { control, handleSubmit, formState: { errors } } = useForm({
-        resolver: zodResolver(loginSchema),
-    });
-    const onSubmit = async (data) => {
-        try {
-            await login(data.email, data.password);
-        }
-        catch (e) {
-            console.error(e);
-            // Show toast or alert
-        }
-    };
-    return (<Screen style={styles.container}>
+  const navigation = useNavigation();
+  const { login, isLoading } = useAuth();
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const { control, handleSubmit, setError } = useForm({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: '',
+      password: '',
+    },
+  });
+
+  const onSubmit = async data => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      await login(data.email, data.password);
+    } catch (err) {
+      if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+        Object.entries(err.fieldErrors).forEach(([field, msg]) => {
+          if (field === 'email' || field === 'password') {
+            setError(field, { type: 'server', message: msg });
+          }
+        });
+      }
+      setErrorMessage(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isBusy = isSubmitting || isLoading;
+
+  return (
+    <Screen style={styles.container}>
+      <Toast message={errorMessage} type="error" onDismiss={() => setErrorMessage(null)} />
+
       <View style={styles.header}>
         <Text variant="headlineLg" style={styles.title}>Welcome Back</Text>
-        <Text variant="bodyMd" color={colors.textSecondary}>Sign in to continue</Text>
+        <Text variant="bodyMd" color={colors.textSecondary}>Sign in to your SafeTours account</Text>
       </View>
       
       <View style={styles.form}>
-        <Input control={control} name="email" label="Email Address" placeholder="you@example.com" keyboardType="email-address" autoCapitalize="none"/>
-        <Input control={control} name="password" label="Password" placeholder="••••••••" secureTextEntry/>
+        <Input
+          control={control}
+          name="email"
+          label="Email Address"
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          editable={!isBusy}
+        />
+        <Input
+          control={control}
+          name="password"
+          label="Password"
+          placeholder="••••••••"
+          secureTextEntry
+          editable={!isBusy}
+        />
       </View>
 
       <View style={styles.footer}>
-        <Button title="Log In" onPress={handleSubmit(onSubmit)} isLoading={isLoading}/>
+        <Button
+          title="Log In"
+          onPress={handleSubmit(onSubmit)}
+          isLoading={isBusy}
+          disabled={isBusy}
+        />
         <View style={styles.signupContainer}>
           <Text variant="bodyMd" color={colors.textSecondary}>Don't have an account? </Text>
-          <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+          <TouchableOpacity onPress={() => navigation.navigate('Signup')} disabled={isBusy}>
             <Text variant="labelLg" color={colors.primary}>Sign Up</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </Screen>);
+    </Screen>
+  );
 };
+
 const styles = StyleSheet.create({
-    container: {
-        padding: spacing.containerMargin,
-    },
-    header: {
-        marginTop: spacing.xl,
-        marginBottom: spacing.xxl,
-    },
-    title: {
-        marginBottom: spacing.xs,
-    },
-    form: {
-        flex: 1,
-    },
-    footer: {
-        paddingBottom: spacing.lg,
-    },
-    signupContainer: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        marginTop: spacing.lg,
-    }
+  container: {
+    padding: spacing.containerMargin,
+  },
+  header: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.xxl,
+  },
+  title: {
+    marginBottom: spacing.xs,
+  },
+  form: {
+    flex: 1,
+  },
+  footer: {
+    paddingBottom: spacing.lg,
+  },
+  signupContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: spacing.lg,
+  },
 });
