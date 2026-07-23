@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, Linking } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, Linking, ScrollView } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { MapComponent } from '../../components/MapComponent';
+import { MapComponent, getRiskColors } from '../../components/MapComponent';
+import { dangerZoneService } from '../../services/dangerZoneService';
 
 const { width, height } = Dimensions.get('window');
 
-// Default fallback region centered on Plaza Mayor
+// Default fallback region
 const DEFAULT_REGION = {
-    latitude: 40.416775,
-    longitude: -3.703790,
-    latitudeDelta: 0.015,
-    longitudeDelta: 0.015,
+    latitude: 18.9220,
+    longitude: 72.8347,
+    latitudeDelta: 0.03,
+    longitudeDelta: 0.03,
 };
 
 export const SafetyMapScreen = () => {
@@ -23,15 +24,22 @@ export const SafetyMapScreen = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
     
-    // Map states
+    // Map & Location states
     const [userLocation, setUserLocation] = useState(null);
     const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
     const [mapType, setMapType] = useState('standard');
     
-    // Location and permission states
+    // Permission and location loading states
     const [permissionStatus, setPermissionStatus] = useState('checking'); // checking, granted, denied, permanently_denied, disabled, error
     const [isLoadingLocation, setIsLoadingLocation] = useState(false);
     const [errorMessage, setErrorMessage] = useState(null);
+
+    // Danger Zone integration states
+    const [dangerZones, setDangerZones] = useState([]);
+    const [selectedZone, setSelectedZone] = useState(null);
+    const [currentZone, setCurrentZone] = useState(null);
+    const [isLoadingDangerZones, setIsLoadingDangerZones] = useState(false);
+    const [dangerZoneError, setDangerZoneError] = useState(null);
 
     const mapRef = useRef(null);
 
@@ -40,12 +48,26 @@ export const SafetyMapScreen = () => {
         requestLocationPermission();
     }, []);
 
+    // Periodic auto-refresh of danger zones (every 30 seconds)
+    useEffect(() => {
+        if (permissionStatus === 'granted') {
+            loadDangerZones();
+        }
+
+        const autoRefreshInterval = setInterval(() => {
+            if (permissionStatus === 'granted') {
+                loadDangerZones(null, true); // silent background refresh
+            }
+        }, 30000);
+
+        return () => clearInterval(autoRefreshInterval);
+    }, [permissionStatus, userLocation?.latitude, userLocation?.longitude]);
+
     const requestLocationPermission = async () => {
         try {
             setPermissionStatus('checking');
             setErrorMessage(null);
 
-            // Check if GPS is enabled on the device
             const servicesEnabled = await Location.hasServicesEnabledAsync();
             if (!servicesEnabled) {
                 setPermissionStatus('disabled');
@@ -53,7 +75,6 @@ export const SafetyMapScreen = () => {
                 return;
             }
 
-            // Check current permission status
             const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
             
             if (existingStatus === 'granted') {
@@ -62,7 +83,6 @@ export const SafetyMapScreen = () => {
                 return;
             }
 
-            // Request permission
             const { status: requestedStatus } = await Location.requestForegroundPermissionsAsync();
             if (requestedStatus === 'granted') {
                 setPermissionStatus('granted');
@@ -107,22 +127,52 @@ export const SafetyMapScreen = () => {
 
             const newRegion = {
                 ...coords,
-                latitudeDelta: 0.015,
-                longitudeDelta: 0.015,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
             };
             setMapRegion(newRegion);
-
-            // Animate map camera to the user location
             mapRef.current?.animateToRegion(newRegion, 1000);
             
-            // Set status to granted if it succeeded
             setPermissionStatus('granted');
+            loadDangerZones(coords);
         } catch (error) {
             console.error('Error fetching current location:', error);
             setErrorMessage('Could not retrieve your current location. Please check your signal and try again.');
         } finally {
             setIsLoadingLocation(false);
         }
+    };
+
+    const loadDangerZones = async (coords = null, isSilent = false) => {
+        if (!isSilent) setIsLoadingDangerZones(true);
+        setDangerZoneError(null);
+
+        const lat = coords ? coords.latitude : userLocation?.latitude;
+        const lng = coords ? coords.longitude : userLocation?.longitude;
+
+        let res;
+        if (lat && lng) {
+            res = await dangerZoneService.getNearbyDangerZones(lat, lng, 3000);
+        } else {
+            res = await dangerZoneService.getDangerZones();
+        }
+
+        if (res.success) {
+            const zones = res.data || [];
+            setDangerZones(zones);
+
+            if (zones.length > 0) {
+                const primaryZone = zones[0];
+                setCurrentZone(primaryZone);
+                if (!selectedZone) {
+                    setSelectedZone(primaryZone);
+                }
+            }
+        } else {
+            setDangerZoneError(res.error?.message || 'Failed to load danger zones');
+        }
+
+        if (!isSilent) setIsLoadingDangerZones(false);
     };
 
     const handleRecenter = async () => {
@@ -147,6 +197,43 @@ export const SafetyMapScreen = () => {
         setMapType(prev => prev === 'standard' ? 'hybrid' : 'standard');
     };
 
+    const handleSelectZone = (zone) => {
+        setSelectedZone(zone);
+        setBottomSheetExpanded(true);
+
+        // Extract coordinates to center map
+        let latitude = null;
+        let longitude = null;
+        if (zone.location && Array.isArray(zone.location.coordinates)) {
+            longitude = zone.location.coordinates[0];
+            latitude = zone.location.coordinates[1];
+        } else if (zone.latitude && zone.longitude) {
+            latitude = Number(zone.latitude);
+            longitude = Number(zone.longitude);
+        }
+
+        if (latitude && longitude && mapRef.current) {
+            mapRef.current.animateToRegion({
+                latitude,
+                longitude,
+                latitudeDelta: 0.015,
+                longitudeDelta: 0.015,
+            }, 800);
+        }
+    };
+
+    // Filter danger zones based on search query
+    const filteredDangerZones = searchQuery.trim()
+        ? dangerZones.filter(z => 
+            (z.hotspotId && String(z.hotspotId).includes(searchQuery)) ||
+            (z.riskLevel && z.riskLevel.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (z.crimeTypes && z.crimeTypes.toLowerCase().includes(searchQuery.toLowerCase()))
+          )
+        : dangerZones;
+
+    const activeZone = selectedZone || currentZone || (dangerZones.length > 0 ? dangerZones[0] : null);
+    const activeRiskColors = activeZone ? getRiskColors(activeZone.riskLevel, activeZone.totalRiskScore ?? activeZone.crimeScore) : getRiskColors('SAFE');
+
     return (
         <Screen style={styles.container} isSafe={false}>
             {/* Map Component */}
@@ -156,6 +243,9 @@ export const SafetyMapScreen = () => {
                 onRegionChangeComplete={(region) => setMapRegion(region)}
                 userLocation={userLocation}
                 mapType={mapType}
+                dangerZones={filteredDangerZones}
+                selectedZone={activeZone}
+                onSelectZone={handleSelectZone}
             />
 
             {/* Top Search Bar */}
@@ -164,17 +254,23 @@ export const SafetyMapScreen = () => {
                     <Ionicons name="search" size={20} color={colors['on-surface-variant']} />
                     <TextInput 
                         style={styles.searchInput}
-                        placeholder="Search nearby safe zones..."
+                        placeholder="Search zones by ID, risk, or crime..."
                         placeholderTextColor={colors['on-surface-variant']}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                     />
-                    <TouchableOpacity style={styles.micButton}>
-                        <Ionicons name="mic" size={20} color={colors.primary} />
-                    </TouchableOpacity>
+                    {searchQuery ? (
+                        <TouchableOpacity style={styles.micButton} onPress={() => setSearchQuery('')}>
+                            <Ionicons name="close-circle" size={20} color={colors.outline} />
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={styles.micButton}>
+                            <Ionicons name="mic" size={20} color={colors.primary} />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
-                {/* Connection Status Row */}
+                {/* Connection & Danger Zone Count Status Row */}
                 <View style={styles.statusRow}>
                     <View style={styles.statusChip}>
                         <Ionicons 
@@ -187,8 +283,10 @@ export const SafetyMapScreen = () => {
                         </Text>
                     </View>
                     <View style={styles.statusChip}>
-                        <Ionicons name="cellular" size={16} color="green" />
-                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>Strong Signal</Text>
+                        <Ionicons name="radio" size={16} color={colors.primary} />
+                        <Text variant="labelMd" style={{ color: colors['on-surface'] }}>
+                            {isLoadingDangerZones ? "Loading Zones..." : `${dangerZones.length} Zones Active`}
+                        </Text>
                     </View>
                 </View>
             </View>
@@ -198,8 +296,8 @@ export const SafetyMapScreen = () => {
                 <TouchableOpacity style={styles.fabSmall} onPress={handleRecenter}>
                     <Ionicons name="locate" size={24} color={colors['on-surface-variant']} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.fabSmall} onPress={fetchCurrentLocation}>
-                    {isLoadingLocation ? (
+                <TouchableOpacity style={styles.fabSmall} onPress={() => loadDangerZones()}>
+                    {isLoadingLocation || isLoadingDangerZones ? (
                         <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                         <Ionicons name="refresh" size={24} color={colors['on-surface-variant']} />
@@ -218,7 +316,7 @@ export const SafetyMapScreen = () => {
                     </View>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: '#facc15' }]} />
-                        <Text variant="labelMd">Caution</Text>
+                        <Text variant="labelMd">Low</Text>
                     </View>
                     <View style={styles.legendItem}>
                         <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
@@ -236,7 +334,7 @@ export const SafetyMapScreen = () => {
                 <Ionicons name="warning" size={32} color={colors['on-error']} />
             </TouchableOpacity>
 
-            {/* Location Permission Fallback Banner Overlay */}
+            {/* Location Permission Fallback Overlay */}
             {permissionStatus !== 'granted' && (
                 <View style={styles.permissionOverlay}>
                     <View style={styles.permissionCard}>
@@ -292,40 +390,114 @@ export const SafetyMapScreen = () => {
                     <View style={styles.sheetHandle} />
                 </TouchableOpacity>
 
-                <View style={styles.sheetHeader}>
-                    <View>
-                        <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase', marginBottom: 2 }}>Current Zone</Text>
-                        <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>Plaza Mayor</Text>
+                {/* Error Banner if Zone Fetch Failed */}
+                {dangerZoneError && (
+                    <View style={styles.errorBanner}>
+                        <Ionicons name="alert-circle" size={20} color={colors.error} />
+                        <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{dangerZoneError}</Text>
+                        <TouchableOpacity style={styles.retryBtn} onPress={() => loadDangerZones()}>
+                            <Text variant="labelMd" style={{ color: colors.primary, fontWeight: 'bold' }}>Retry</Text>
+                        </TouchableOpacity>
                     </View>
-                    <View style={styles.weatherBadge}>
-                        <Ionicons name="cloud" size={18} color={colors.tertiary} />
-                        <Text variant="labelLg" color={colors.tertiary}>24°C Sunny</Text>
-                    </View>
-                </View>
+                )}
 
-                <View style={styles.statsGrid}>
-                    <View style={styles.statCard}>
-                        <View style={styles.statIconContainer}>
-                            <Ionicons name="checkmark-circle" size={24} color="#15803d" />
-                        </View>
-                        <View>
-                            <Text variant="labelMd" color={colors['on-surface-variant']}>Risk Level</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold', color: '#15803d' }}>Low</Text>
-                        </View>
+                {isLoadingDangerZones && !activeZone ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="small" color={colors.primary} />
+                        <Text variant="labelLg" color={colors['on-surface-variant']} style={{ marginTop: 8 }}>
+                            Loading danger zone details...
+                        </Text>
                     </View>
+                ) : activeZone ? (
+                    <>
+                        <View style={styles.sheetHeader}>
+                            <View style={{ flex: 1 }}>
+                                <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase', marginBottom: 2 }}>
+                                    {selectedZone ? "Selected Zone" : "Current Area"}
+                                </Text>
+                                <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>
+                                    {activeZone.hotspotId 
+                                        ? `Hotspot #${activeZone.hotspotId}` 
+                                        : (activeZone.h3Index ? `Cell ${activeZone.h3Index.substring(0, 10)}...` : 'Zone Info')}
+                                </Text>
+                            </View>
 
-                    <View style={styles.statCard}>
-                        <View style={styles.statIconContainer}>
-                            <Ionicons name="shield-checkmark" size={24} color="#15803d" />
+                            <View style={[styles.riskLevelBadge, { backgroundColor: activeRiskColors.fill, borderColor: activeRiskColors.stroke }]}>
+                                <View style={[styles.legendDot, { backgroundColor: activeRiskColors.solid }]} />
+                                <Text variant="labelLg" style={{ color: activeRiskColors.stroke, fontWeight: 'bold' }}>
+                                    {activeZone.riskLevel || activeRiskColors.label}
+                                </Text>
+                            </View>
                         </View>
-                        <View>
-                            <Text variant="labelMd" color={colors['on-surface-variant']}>Patrol Frequency</Text>
-                            <Text variant="headlineSm" style={{ fontWeight: 'bold', color: '#15803d' }}>High</Text>
+
+                        <View style={styles.statsGrid}>
+                            <View style={styles.statCard}>
+                                <View style={[styles.statIconContainer, { backgroundColor: activeRiskColors.fill }]}>
+                                    <Ionicons name="warning" size={22} color={activeRiskColors.stroke} />
+                                </View>
+                                <View>
+                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Score</Text>
+                                    <Text variant="headlineSm" style={{ fontWeight: 'bold', color: activeRiskColors.stroke }}>
+                                        {Math.round(activeZone.totalRiskScore ?? activeZone.crimeScore ?? 0)} / 100
+                                    </Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.statCard}>
+                                <View style={styles.statIconContainer}>
+                                    <Ionicons name="stats-chart" size={22} color={colors.primary} />
+                                </View>
+                                <View>
+                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Incidents</Text>
+                                    <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                        {activeZone.crimeCount ?? 'N/A'}
+                                    </Text>
+                                </View>
+                            </View>
                         </View>
+
+                        {/* Extra Detail Rows */}
+                        <View style={styles.detailsContainer}>
+                            <View style={styles.detailRow}>
+                                <Ionicons name="pricetag" size={16} color={colors['on-surface-variant']} />
+                                <Text variant="labelLg" color={colors['on-surface-variant']}>Dominant Types:</Text>
+                                <Text variant="labelLg" style={{ fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
+                                    {activeZone.crimeTypes || 'General Incidents'}
+                                </Text>
+                            </View>
+
+                            {activeZone.averageCrimeSeverity !== undefined && (
+                                <View style={styles.detailRow}>
+                                    <Ionicons name="shield-outline" size={16} color={colors['on-surface-variant']} />
+                                    <Text variant="labelLg" color={colors['on-surface-variant']}>Avg Severity:</Text>
+                                    <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
+                                        {Number(activeZone.averageCrimeSeverity).toFixed(1)} / 10
+                                    </Text>
+                                </View>
+                            )}
+
+                            {activeZone.distanceInMeters !== undefined && (
+                                <View style={styles.detailRow}>
+                                    <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+                                    <Text variant="labelLg" color={colors.primary}>Proximity:</Text>
+                                    <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                        {Math.round(activeZone.distanceInMeters)} meters away
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                    </>
+                ) : (
+                    <View style={styles.loadingContainer}>
+                        <Ionicons name="shield-checkmark" size={32} color="green" />
+                        <Text variant="headlineSm" style={{ fontWeight: 'bold', marginTop: 8 }}>Area Safe</Text>
+                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginTop: 4 }}>
+                            No active danger zones detected in your immediate radius.
+                        </Text>
                     </View>
-                </View>
+                )}
 
-                <View style={styles.actionButtonsRow}>
+                <View style={[styles.actionButtonsRow, { marginTop: spacing.md }]}>
                     <TouchableOpacity style={styles.routeBtn} onPress={() => navigation.navigate('LiveJourney')}>
                         <Ionicons name="navigate" size={20} color={colors['on-primary']} />
                         <Text variant="labelLg" color={colors['on-primary']}>Route Home</Text>
@@ -351,7 +523,7 @@ const styles = StyleSheet.create({
     },
     topSearchContainer: {
         position: 'absolute',
-        top: spacing.xl + 20, // push below status bar
+        top: spacing.xl + 20,
         left: spacing.md,
         right: spacing.md,
         zIndex: 10,
@@ -476,7 +648,7 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 15,
         zIndex: 30,
-        transform: [{ translateY: 60 }], // Partially hidden state (placeholder logic)
+        transform: [{ translateY: 60 }],
     },
     bottomSheetExpanded: {
         transform: [{ translateY: 0 }],
@@ -484,7 +656,7 @@ const styles = StyleSheet.create({
     sheetHandleContainer: {
         alignItems: 'center',
         paddingVertical: spacing.sm,
-        marginBottom: spacing.md,
+        marginBottom: spacing.sm,
     },
     sheetHandle: {
         width: 48,
@@ -495,24 +667,22 @@ const styles = StyleSheet.create({
     sheetHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: spacing.lg,
+        alignItems: 'center',
+        marginBottom: spacing.md,
     },
-    weatherBadge: {
+    riskLevelBadge: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        backgroundColor: 'rgba(182, 115, 73, 0.1)',
-        paddingHorizontal: 16,
+        paddingHorizontal: 14,
         paddingVertical: 8,
         borderRadius: shapes.roundedPill,
         borderWidth: 1,
-        borderColor: 'rgba(182, 115, 73, 0.2)',
     },
     statsGrid: {
         flexDirection: 'row',
         gap: spacing.md,
-        marginBottom: spacing.xl,
+        marginBottom: spacing.md,
     },
     statCard: {
         flex: 1,
@@ -526,12 +696,43 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(217, 194, 183, 0.2)',
     },
     statIconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: '#dcfce7',
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: 'rgba(182, 115, 73, 0.1)',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    detailsContainer: {
+        backgroundColor: colors['surface-container-low'],
+        borderRadius: shapes.roundedLg,
+        padding: spacing.md,
+        gap: spacing.sm,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.2)',
+    },
+    detailRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+    },
+    loadingContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: spacing.xl,
+    },
+    errorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors['error-container'] || '#ffdad6',
+        padding: spacing.sm + 2,
+        borderRadius: shapes.roundedSm,
+        marginBottom: spacing.sm,
+    },
+    retryBtn: {
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 4,
     },
     actionButtonsRow: {
         flexDirection: 'row',
