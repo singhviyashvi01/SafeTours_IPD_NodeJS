@@ -5,6 +5,8 @@ import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import { locationService } from '../../services/locationService';
+import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
 import { useNavigation } from '@react-navigation/native';
 
@@ -71,19 +73,60 @@ export const SOSScreen = () => {
         return () => clearInterval(interval);
     }, [showSafetyModal, countdown]);
 
+    // Helper to get or sync latest location and retrieve active journey
+    const prepareSOSData = async () => {
+        let locationId = null;
+        const currentLat = userLocation?.latitude || 18.9220;
+        const currentLng = userLocation?.longitude || 72.8347;
+
+        // Try syncing fresh location first to get locationId from Location API response
+        const syncRes = await locationService.syncLocation({
+            latitude: currentLat,
+            longitude: currentLng,
+            accuracy: 10,
+        });
+
+        if (syncRes.success && syncRes.data?._id) {
+            locationId = syncRes.data._id;
+        } else {
+            // Fallback: Fetch latest location from locationService
+            const latestRes = await locationService.getLatestLocation();
+            if (latestRes.success && latestRes.location?._id) {
+                locationId = latestRes.location._id;
+            }
+        }
+
+        // Fetch active journey if any
+        let journeyId = null;
+        try {
+            const journeyRes = await journeyService.getActive();
+            if (journeyRes.success && journeyRes.journey?._id) {
+                journeyId = journeyRes.journey._id;
+            }
+        } catch (err) {
+            console.warn('Could not fetch active journey for SOS:', err);
+        }
+
+        return { locationId, journeyId };
+    };
+
     const handleSOSPress = async () => {
         setIsSubmitting(true);
         setStatusMessage('Broadcasting Emergency SOS...');
 
-        const currentLat = userLocation?.latitude || 18.9220;
-        const currentLng = userLocation?.longitude || 72.8347;
+        const { locationId, journeyId } = await prepareSOSData();
+
+        if (!locationId) {
+            setIsSubmitting(false);
+            setStatusMessage('SOS Status: Ready');
+            Alert.alert('SOS Error', 'Could not obtain location record for SOS trigger.');
+            return;
+        }
 
         const payload = {
-            location: {
-                type: 'Point',
-                coordinates: [currentLng, currentLat], // GeoJSON standard [lng, lat]
-            },
-            details: 'Manual SOS button pressed by user from mobile screen.',
+            locationId,
+            ...(journeyId ? { journeyId } : {}),
+            reason: 'Manual SOS button pressed by user from mobile screen.',
         };
 
         const res = await sosService.triggerManual(payload);
@@ -100,21 +143,33 @@ export const SOSScreen = () => {
     };
 
     const handleAutomaticSOSTrigger = async () => {
-        const currentLat = userLocation?.latitude || 18.9220;
-        const currentLng = userLocation?.longitude || 72.8347;
+        setIsSubmitting(true);
+        setStatusMessage('Triggering Automatic SOS...');
+
+        const { locationId, journeyId } = await prepareSOSData();
+
+        if (!locationId || !journeyId) {
+            setIsSubmitting(false);
+            setStatusMessage('SOS Status: Ready');
+            Alert.alert('SOS Error', 'An active journey and valid location are required for Automatic SOS.');
+            return;
+        }
 
         const payload = {
-            location: {
-                type: 'Point',
-                coordinates: [currentLng, currentLat],
-            },
-            triggerReason: 'Safety prompt countdown expired without user response.',
+            locationId,
+            journeyId,
+            reason: 'Safety prompt countdown expired without user response.',
         };
 
         const res = await sosService.triggerAutomatic(payload);
+        setIsSubmitting(false);
+
         if (res.success) {
             setActiveSosRecord(res.data);
             setStatusMessage('AUTOMATIC SOS ACTIVE');
+        } else {
+            setStatusMessage('SOS Status: Ready');
+            Alert.alert('SOS Error', res.error?.message || 'Could not send automatic emergency alert.');
         }
     };
 

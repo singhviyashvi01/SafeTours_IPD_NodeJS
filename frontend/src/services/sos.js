@@ -6,7 +6,7 @@ import { apiClient, formatApiError } from './apiClient';
 export const sosService = {
   /**
    * Triggers a manual SOS emergency broadcast.
-   * @param {Object} payload - { location: { type: 'Point', coordinates: [lng, lat] }, details }
+   * @param {Object} payload - { locationId, journeyId?, reason? }
    */
   async triggerManual(payload) {
     try {
@@ -27,7 +27,7 @@ export const sosService = {
 
   /**
    * Triggers an automatic SOS alert (e.g., ETA breach, route deviation).
-   * @param {Object} payload - { location: { type: 'Point', coordinates: [lng, lat] }, triggerReason }
+   * @param {Object} payload - { locationId, journeyId, reason? }
    */
   async triggerAutomatic(payload) {
     try {
