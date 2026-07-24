@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform } from 'react-native';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { GlassCard, InfoCard } from '../../components/ReusableCards';
@@ -8,18 +9,32 @@ import { IconText } from '../../components/IconText';
 import { Chip } from '../../components/Chip';
 import { colors, spacing, typography, shapes } from '../../theme/theme';
 import { dashboardService } from '../../services/dashboard';
-import { profileService } from '../../services/profile';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../../context/AuthContext';
+import { SidebarDrawer } from '../../components/SidebarDrawer';
+
+const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good Morning';
+    if (hour >= 12 && hour < 17) return 'Good Afternoon';
+    if (hour >= 17 && hour < 21) return 'Good Evening';
+    return 'Good Night';
+};
 
 export const HomeScreen = () => {
     const navigation = useNavigation();
+    const { user } = useAuth();
+    const netInfo = useNetInfo();
     const [data, setData] = useState(null);
-    const [profile, setProfile] = useState(null);
+    const [drawerVisible, setDrawerVisible] = useState(false);
     useEffect(() => {
         dashboardService.getDashboardData().then(setData).catch(err => console.warn('Dashboard load error:', err));
-        profileService.getProfile().then(setProfile).catch(err => console.warn('Profile load error:', err));
     }, []);
+
+    // NetInfo subscribes to connection changes, so the badge updates without polling.
+    const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
+    const displayName = user?.name || user?.username || 'Traveler';
 
     if (!data) {
         return (
@@ -34,17 +49,20 @@ export const HomeScreen = () => {
             {/* Top Navigation */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
+                    <TouchableOpacity onPress={() => setDrawerVisible(current => !current)} accessibilityLabel="Open menu">
+                        <Ionicons name="menu" size={28} color={colors.primary} />
+                    </TouchableOpacity>
                     <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
                     <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
                 </View>
                 <View style={styles.headerRight}>
-                    <View style={styles.onlineBadge}>
-                        <View style={styles.onlineDot} />
-                        <Text variant="labelMd" style={styles.onlineText}>ONLINE</Text>
+                    <View style={[styles.onlineBadge, !isOnline && styles.offlineBadge]}>
+                        <View style={[styles.onlineDot, !isOnline && styles.offlineDot]} />
+                        <Text variant="labelMd" style={[styles.onlineText, !isOnline && styles.offlineText]}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
                     </View>
                     <TouchableOpacity style={styles.profilePicContainer} onPress={() => navigation.navigate('Profile')}>
-                        {profile?.profileImage
-                            ? <Image source={{ uri: profile.profileImage }} style={styles.profilePic} />
+                        {user?.profileImage
+                            ? <Image source={{ uri: user.profileImage }} style={styles.profilePic} />
                             : <Ionicons name="person" size={20} color={colors.primary} />}
                     </TouchableOpacity>
                 </View>
@@ -54,8 +72,8 @@ export const HomeScreen = () => {
                 
                 {/* Greeting */}
                 <View style={styles.greetingSection}>
-                    <Text variant="bodyMd" color={colors['on-surface-variant']}>Good Morning,</Text>
-                    <Text variant="headlineLg" style={styles.greetingName}>{profile?.name || 'SafeTours User'}</Text>
+                    <Text variant="bodyMd" color={colors['on-surface-variant']}>{getGreeting()},</Text>
+                    <Text variant="headlineLg" style={styles.greetingName}>{displayName}</Text>
                     <Text variant="bodyMd" color={colors.primary} style={styles.greetingSub}>Your safety summary for today.</Text>
                 </View>
 
@@ -143,6 +161,13 @@ export const HomeScreen = () => {
             <View style={styles.floatingSosContainer}>
                 <SOSButton onPress={() => navigation.navigate('SOS')} size={64} style={styles.floatingSos} />
             </View>
+
+            <SidebarDrawer
+                visible={drawerVisible}
+                onClose={() => setDrawerVisible(false)}
+                navigation={navigation}
+                activeRoute="Home"
+            />
         </Screen>
     );
 };
@@ -204,6 +229,12 @@ const styles = StyleSheet.create({
         color: colors.tertiary,
         fontWeight: '600',
     },
+    offlineBadge: {
+        backgroundColor: colors['error-container'] || '#ffdad6',
+        borderColor: 'rgba(186, 26, 26, 0.25)',
+    },
+    offlineDot: { backgroundColor: colors.error },
+    offlineText: { color: colors.error },
     profilePicContainer: {
         width: 40,
         height: 40,
@@ -211,10 +242,14 @@ const styles = StyleSheet.create({
         borderWidth: 2,
         borderColor: colors['primary-container'],
         overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors['surface-container-low'],
     },
     profilePic: {
         width: '100%',
         height: '100%',
+        resizeMode: 'cover',
     },
     scrollContent: {
         padding: spacing.lg,

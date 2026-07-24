@@ -57,6 +57,7 @@ export const MapComponent = forwardRef(({
     userLocation,
     mapType = 'standard',
     dangerZones = [],
+    communityIncidents = [],
     selectedZone = null,
     onSelectZone,
     ...props
@@ -189,6 +190,23 @@ export const MapComponent = forwardRef(({
                     </View>
                 </Marker>
             )}
+
+            {/* Community reports stay visually separate from Person 2 danger zones. */}
+            {communityIncidents.map((incident, index) => {
+                const latitude = Number(incident.latitude ?? incident.location?.coordinates?.[1]);
+                const longitude = Number(incident.longitude ?? incident.location?.coordinates?.[0]);
+                if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+                return (
+                    <Marker
+                        key={incident._id || incident.id || `incident-${index}`}
+                        coordinate={{ latitude, longitude }}
+                        title={incident.incidentType || 'Community incident'}
+                        description={incident.description || 'Reported by the community'}
+                        pinColor={incident.severity === 'CRITICAL' || incident.severity === 'HIGH' ? colors.error : '#f97316'}
+                    />
+                );
+            })}
         </MapView>
     );
 });

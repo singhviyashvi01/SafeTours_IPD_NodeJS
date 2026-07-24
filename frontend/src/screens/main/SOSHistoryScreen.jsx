@@ -14,11 +14,13 @@ export const SOSHistoryScreen = ({ navigation }) => {
   const load = async () => {
     setError('');
     setItems(null);
-    try {
-      const history = await sosService.list();
-      setItems(history);
-    } catch (e) {
-      setError(e?.message || 'Failed to load SOS history.');
+    const result = await sosService.getHistory();
+    if (result.success) {
+      setItems(result.data || []);
+    } else {
+      // Services return formatted errors instead of throwing, so keep the
+      // error visible and make DataState's retry button useful.
+      setError(result.error?.message || 'Failed to load SOS history.');
     }
   };
 

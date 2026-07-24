@@ -22,6 +22,7 @@ export const SOSScreen = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [userLocation, setUserLocation] = useState(null);
     const [statusMessage, setStatusMessage] = useState('SOS Status: Ready');
+    const [sosError, setSosError] = useState(null);
 
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -42,7 +43,31 @@ export const SOSScreen = () => {
         ).start();
 
         fetchCurrentLocation();
+        loadActiveSOS();
     }, []);
+
+    // The backend does not expose a separate active-SOS endpoint. History contains
+    // the current alert, so reading it here restores cancellation controls after a restart.
+    const loadActiveSOS = async () => {
+        setSosError(null);
+        const historyResult = await sosService.getHistory();
+
+        if (!historyResult.success) {
+            const isOffline = historyResult.error?.status === 0;
+            setSosError(
+                isOffline
+                    ? 'You are offline. SOS status will refresh when the connection returns.'
+                    : historyResult.error?.message || 'Could not load the current SOS status.'
+            );
+            return;
+        }
+
+        const activeSOS = (historyResult.data || []).find(item => item.status === 'active');
+        if (activeSOS) {
+            setActiveSosRecord(activeSOS);
+            setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
+        }
+    };
 
     const fetchCurrentLocation = async () => {
         try {
@@ -112,6 +137,7 @@ export const SOSScreen = () => {
 
     const handleSOSPress = async () => {
         setIsSubmitting(true);
+        setSosError(null);
         setStatusMessage('Broadcasting Emergency SOS...');
 
         const { locationId, journeyId } = await prepareSOSData();
@@ -138,12 +164,15 @@ export const SOSScreen = () => {
             Alert.alert('SOS Broadcast Sent', 'Your emergency alert and live coordinates have been broadcast.');
         } else {
             setStatusMessage('SOS Status: Ready');
-            Alert.alert('SOS Error', res.error?.message || 'Could not send emergency alert.');
+            const message = res.error?.message || 'Could not send emergency alert.';
+            setSosError(res.error?.status === 0 ? 'You are offline. Reconnect and retry SOS.' : message);
+            Alert.alert('SOS Error', message);
         }
     };
 
     const handleAutomaticSOSTrigger = async () => {
         setIsSubmitting(true);
+        setSosError(null);
         setStatusMessage('Triggering Automatic SOS...');
 
         const { locationId, journeyId } = await prepareSOSData();
@@ -169,7 +198,9 @@ export const SOSScreen = () => {
             setStatusMessage('AUTOMATIC SOS ACTIVE');
         } else {
             setStatusMessage('SOS Status: Ready');
-            Alert.alert('SOS Error', res.error?.message || 'Could not send automatic emergency alert.');
+            const message = res.error?.message || 'Could not send automatic emergency alert.';
+            setSosError(res.error?.status === 0 ? 'You are offline. Reconnect and retry SOS.' : message);
+            Alert.alert('SOS Error', message);
         }
     };
 
@@ -198,7 +229,9 @@ export const SOSScreen = () => {
                             setStatusMessage('SOS Status: Ready');
                             Alert.alert('Cancelled', 'Emergency SOS alert has been cancelled.');
                         } else {
-                            Alert.alert('Error', res.error?.message || 'Could not cancel SOS.');
+                            const message = res.error?.message || 'Could not cancel SOS.';
+                            setSosError(res.error?.status === 0 ? 'You are offline. Reconnect and retry cancelling SOS.' : message);
+                            Alert.alert('Error', message);
                         }
                     }
                 }
@@ -223,6 +256,15 @@ export const SOSScreen = () => {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                {sosError && (
+                    <View style={styles.errorBanner}>
+                        <Ionicons name="cloud-offline-outline" size={20} color={colors.error} />
+                        <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{sosError}</Text>
+                        <TouchableOpacity onPress={loadActiveSOS}>
+                            <Text variant="labelMd" style={{ color: colors.primary, fontWeight: 'bold' }}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
                 
                 {/* Emergency Header */}
                 <View style={[styles.emergencyHeader, activeSosRecord && { backgroundColor: colors.error }]}>
@@ -420,6 +462,15 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: spacing.lg,
+    },
+    errorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors['error-container'] || '#ffdad6',
+        padding: spacing.md,
+        borderRadius: shapes.roundedMd,
+        marginBottom: spacing.md,
     },
     emergencyHeader: {
         flexDirection: 'row',

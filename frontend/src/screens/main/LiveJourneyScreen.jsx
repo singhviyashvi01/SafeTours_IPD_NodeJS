@@ -8,7 +8,10 @@ import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
+import { locationService } from '../../services/locationService';
 import { MapComponent } from '../../components/MapComponent';
+import { dangerZoneService } from '../../services/dangerZoneService';
+import { geofenceManager } from '../../utils/geofenceManager';
 
 const { width, height } = Dimensions.get('window');
 
@@ -21,6 +24,8 @@ export const LiveJourneyScreen = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMessage, setErrorMessage] = useState(null);
+    const [dangerZones, setDangerZones] = useState([]);
+    const [journeyWarning, setJourneyWarning] = useState(null);
 
     // Form inputs for starting a new journey
     const [showStartModal, setShowStartModal] = useState(false);
@@ -44,10 +49,29 @@ export const LiveJourneyScreen = () => {
             const { status } = await Location.requestForegroundPermissionsAsync();
             if (status === 'granted') {
                 const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-                setUserLocation({
+                const currentLocation = {
                     latitude: loc.coords.latitude,
                     longitude: loc.coords.longitude,
-                });
+                };
+                setUserLocation(currentLocation);
+
+                // Reuse Person 2's danger-zone data so the journey map shows current route risks.
+                const zonesResult = await dangerZoneService.getNearbyDangerZones(
+                    currentLocation.latitude,
+                    currentLocation.longitude,
+                    3000
+                );
+                if (zonesResult.success) {
+                    const zones = zonesResult.data || [];
+                    setDangerZones(zones);
+
+                    // Reuse the existing geofence evaluator only for a journey warning.
+                    // SOS triggering remains owned by the dedicated SOS flow.
+                    const { activeZone, toastMessage } = geofenceManager.evaluateLocation(currentLocation, zones);
+                    if (activeZone && toastMessage) {
+                        setJourneyWarning(toastMessage);
+                    }
+                }
             }
 
             // Check active journey status
@@ -90,6 +114,7 @@ export const LiveJourneyScreen = () => {
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
             setShowStartModal(false);
+            Alert.alert('Journey Started', res.message || 'Your journey is now being monitored.');
         } else {
             setErrorMessage(res.error?.message || 'Failed to start journey.');
         }
@@ -112,6 +137,7 @@ export const LiveJourneyScreen = () => {
                         setIsSubmitting(false);
                         if (res.success) {
                             setActiveJourney(null);
+                            Alert.alert('Journey Updated', res.message || 'Your journey status has been saved.');
                         } else {
                             Alert.alert('Error', res.error?.message || 'Failed to end journey.');
                         }
@@ -119,6 +145,30 @@ export const LiveJourneyScreen = () => {
                 }
             ]
         );
+    };
+
+    const handleUpdateJourney = async () => {
+        if (!activeJourney?._id) return;
+
+        const minutes = Number(etaMinutes);
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+            setErrorMessage('Enter a valid ETA in minutes before updating the journey.');
+            return;
+        }
+
+        setIsSubmitting(true);
+        setErrorMessage(null);
+        const res = await journeyService.update(activeJourney._id, {
+            expectedArrivalTime: new Date(Date.now() + minutes * 60000).toISOString(),
+        });
+        setIsSubmitting(false);
+
+        if (res.success && res.journey) {
+            setActiveJourney(res.journey);
+            Alert.alert('Journey Updated', res.message || 'Your expected arrival time has been updated.');
+        } else {
+            setErrorMessage(res.error?.message || 'Failed to update journey.');
+        }
     };
 
     const handleTriggerSOS = async () => {
@@ -134,12 +184,21 @@ export const LiveJourneyScreen = () => {
                         const currentLat = userLocation?.latitude || 18.9220;
                         const currentLng = userLocation?.longitude || 72.8347;
 
+                        // The SOS API accepts a saved location ID, not raw map coordinates.
+                        const locationResult = await locationService.syncLocation({
+                            latitude: currentLat,
+                            longitude: currentLng,
+                            accuracy: 10,
+                        });
+                        if (!locationResult.success || !locationResult.data?._id) {
+                            Alert.alert('SOS Failure', locationResult.error?.message || 'Could not sync your location for SOS.');
+                            return;
+                        }
+
                         const res = await sosService.triggerManual({
-                            location: {
-                                type: 'Point',
-                                coordinates: [currentLng, currentLat],
-                            },
-                            details: `SOS triggered during active journey ${activeJourney?._id || ''}`,
+                            locationId: locationResult.data._id,
+                            journeyId: activeJourney?._id,
+                            reason: 'SOS triggered during an active journey.',
                         });
 
                         if (res.success) {
@@ -169,6 +228,7 @@ export const LiveJourneyScreen = () => {
                     longitudeDelta: 0.02,
                 }}
                 userLocation={userLocation}
+                dangerZones={dangerZones}
             />
 
             {/* Top Navigation Header */}
@@ -213,6 +273,16 @@ export const LiveJourneyScreen = () => {
                     <View style={styles.errorBox}>
                         <Ionicons name="alert-circle" size={20} color={colors.error} />
                         <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{errorMessage}</Text>
+                        <TouchableOpacity onPress={loadInitialState}>
+                            <Text variant="labelMd" style={{ color: colors.primary, fontWeight: 'bold' }}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {journeyWarning && activeJourney && (
+                    <View style={styles.warningBox}>
+                        <Ionicons name="shield-outline" size={20} color={colors.error} />
+                        <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{journeyWarning}</Text>
                     </View>
                 )}
 
@@ -256,6 +326,24 @@ export const LiveJourneyScreen = () => {
                                 <Text variant="labelSm" color={colors.outline} style={styles.statLabel}>Target ETA</Text>
                                 <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>{etaFormatted}</Text>
                             </View>
+                        </View>
+
+                        {/* The existing journey endpoint supports ETA changes while ACTIVE. */}
+                        <View style={styles.updateEtaRow}>
+                            <TextInput
+                                style={styles.etaInput}
+                                value={etaMinutes}
+                                onChangeText={setEtaMinutes}
+                                keyboardType="numeric"
+                                placeholder="ETA minutes"
+                            />
+                            <TouchableOpacity
+                                style={styles.updateEtaButton}
+                                onPress={handleUpdateJourney}
+                                disabled={isSubmitting}
+                            >
+                                <Text variant="labelMd" color={colors.white} style={{ fontWeight: 'bold' }}>Update ETA</Text>
+                            </TouchableOpacity>
                         </View>
 
                         {/* AI Recommendation */}
@@ -461,6 +549,15 @@ const styles = StyleSheet.create({
         borderRadius: shapes.roundedSm,
         marginBottom: spacing.md,
     },
+    warningBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors['error-container'] || '#ffdad6',
+        padding: spacing.md,
+        borderRadius: shapes.roundedSm,
+        marginBottom: spacing.md,
+    },
     progressHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -496,6 +593,27 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: spacing.md,
         marginBottom: spacing.md,
+    },
+    updateEtaRow: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+        marginBottom: spacing.md,
+    },
+    etaInput: {
+        flex: 1,
+        backgroundColor: colors.white,
+        borderWidth: 1,
+        borderColor: colors['outline-variant'],
+        borderRadius: shapes.roundedMd,
+        paddingHorizontal: spacing.md,
+        color: colors['on-surface'],
+    },
+    updateEtaButton: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.primary,
+        borderRadius: shapes.roundedMd,
+        paddingHorizontal: spacing.md,
     },
     statBox: {
         flex: 1,

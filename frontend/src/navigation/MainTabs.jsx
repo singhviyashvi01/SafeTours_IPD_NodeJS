@@ -6,7 +6,7 @@ import { SafetyMapScreen } from '../screens/main/SafetyMapScreen';
 import { SOSScreen } from '../screens/main/SOSScreen';
 import { AISafetyAssistantScreen } from '../screens/main/AISafetyAssistantScreen';
 import { SettingsScreen } from '../screens/main/SettingsScreen';
-import { colors, shapes } from '../theme/theme';
+import { colors } from '../theme/theme';
 
 const Tab = createBottomTabNavigator();
 
@@ -15,15 +15,9 @@ export const MainTabs = () => {
         <Tab.Navigator screenOptions={({ route }) => ({
             headerShown: false,
             tabBarStyle: {
-                backgroundColor: 'rgba(255, 248, 246, 0.9)', // surface/80
-                borderTopWidth: 1,
-                borderTopColor: 'rgba(217, 194, 183, 0.2)', // outline-variant/20
-                height: 70,
-                paddingBottom: 24,
-                paddingTop: 12,
-                position: 'absolute',
-                borderTopLeftRadius: shapes.roundedXl,
-                borderTopRightRadius: shapes.roundedXl,
+                // Keep the existing tab routes and navigation state, but remove
+                // their visual bar now that Home provides the sidebar UI.
+                display: 'none',
             },
             tabBarActiveTintColor: colors.primary,
             tabBarInactiveTintColor: colors['on-surface-variant'],

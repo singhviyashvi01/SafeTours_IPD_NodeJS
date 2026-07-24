@@ -10,6 +10,9 @@ import { MapComponent, getRiskColors } from '../../components/MapComponent';
 import { dangerZoneService } from '../../services/dangerZoneService';
 import { locationService } from '../../services/locationService';
 import { communityService } from '../../services/communityService';
+import { sosService } from '../../services/sos';
+import { journeyService } from '../../services/journeys';
+import { profileService } from '../../services/profile';
 import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
 import { LocationStatusModal } from '../../components/LocationStatusModal';
 
@@ -23,7 +26,7 @@ const DEFAULT_REGION = {
     longitudeDelta: 0.03,
 };
 
-export const SafetyMapScreen = () => {
+export const SafetyMapScreen = ({ route }) => {
     const navigation = useNavigation();
     const [searchQuery, setSearchQuery] = useState('');
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
@@ -62,17 +65,40 @@ export const SafetyMapScreen = () => {
     const [incidentDescription, setIncidentDescription] = useState('');
     const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
     const [incidentMessage, setIncidentMessage] = useState(null);
+    const [isLoadingCommunity, setIsLoadingCommunity] = useState(false);
+    const [communityError, setCommunityError] = useState(null);
 
     const mapRef = useRef(null);
     const locationSubscription = useRef(null);
     const lastSyncedCoords = useRef(null);
+    const automaticSosZoneId = useRef(null);
+    const dangerZonesRef = useRef([]);
+    const autoSosEnabledRef = useRef(false);
 
-    const loadCommunityIncidents = async () => {
-        const lat = userLocation?.latitude || 18.9220;
-        const lng = userLocation?.longitude || 72.8347;
+    const loadCommunityIncidents = async (coordinates = null) => {
+        setIsLoadingCommunity(true);
+        setCommunityError(null);
+        const lat = coordinates?.latitude || userLocation?.latitude || 18.9220;
+        const lng = coordinates?.longitude || userLocation?.longitude || 72.8347;
         const res = await communityService.getNearbyIncidents(lat, lng, 5000);
         if (res.success) {
             setCommunityIncidents(res.data || []);
+        } else {
+            setCommunityError(res.error?.message || 'Could not load nearby community reports.');
+        }
+        setIsLoadingCommunity(false);
+    };
+
+    // Auto SOS is opt-in. This reads the user's existing Person 1 profile setting
+    // and never changes it from the map screen.
+    const loadAutoSosSetting = async () => {
+        try {
+            const profile = await profileService.getProfile();
+            const enabled = Boolean(profile?.emergencySettings?.autoSOS);
+            autoSosEnabledRef.current = enabled;
+        } catch (error) {
+            // A profile read failure must not stop map tracking or trigger SOS unexpectedly.
+            console.warn('Could not read Auto SOS setting:', error);
         }
     };
 
@@ -109,22 +135,33 @@ export const SafetyMapScreen = () => {
     };
 
     const handleConfirmIncident = async (incidentId) => {
+        setIsLoadingCommunity(true);
+        setCommunityError(null);
         const res = await communityService.confirmIncident(incidentId);
         if (res.success) {
             loadCommunityIncidents();
+        } else {
+            setCommunityError(res.error?.message || 'Could not confirm this incident.');
+            setIsLoadingCommunity(false);
         }
     };
 
     const handleReportFalse = async (incidentId) => {
+        setIsLoadingCommunity(true);
+        setCommunityError(null);
         const res = await communityService.reportFalse(incidentId);
         if (res.success) {
             loadCommunityIncidents();
+        } else {
+            setCommunityError(res.error?.message || 'Could not flag this incident.');
+            setIsLoadingCommunity(false);
         }
     };
 
     // Initial check/request on mount
     useEffect(() => {
         requestLocationPermission();
+        loadAutoSosSetting();
 
         return () => {
             if (locationSubscription.current) {
@@ -132,6 +169,15 @@ export const SafetyMapScreen = () => {
             }
         };
     }, []);
+
+    useEffect(() => {
+        // Community Feed is an existing map feature. A sidebar navigation
+        // request simply opens this UI instead of creating another screen.
+        if (route?.params?.communityRequestId) {
+            loadCommunityIncidents();
+            setShowCommunityFeed(true);
+        }
+    }, [route?.params?.communityRequestId]);
 
     // Periodic background refresh for danger zone data (every 30 seconds)
     useEffect(() => {
@@ -230,6 +276,7 @@ export const SafetyMapScreen = () => {
             setTrackingActive(true);
             setPermissionStatus('granted');
             loadDangerZones(initialCoords);
+            loadCommunityIncidents(initialCoords);
         } catch (error) {
             console.error('Error starting live tracking:', error);
             setErrorMessage('Could not establish continuous live tracking. Retrying...');
@@ -255,14 +302,23 @@ export const SafetyMapScreen = () => {
         setLastUpdateTime(isoTime);
 
         // Geofence check against active danger zones
-        if (dangerZones.length > 0) {
-            const { activeZone, toastMessage } = geofenceManager.evaluateLocation(coords, dangerZones);
+        if (dangerZonesRef.current.length > 0) {
+            const { activeZone, toastMessage } = geofenceManager.evaluateLocation(coords, dangerZonesRef.current);
             if (activeZone) {
                 setCurrentZone(activeZone);
             }
             if (toastMessage) {
                 setGeofenceToast(toastMessage);
                 setTimeout(() => setGeofenceToast(null), 4000);
+            }
+
+            // An automatic alert is only considered once per zone entry, and only
+            // when the user explicitly enabled Auto SOS in their existing settings.
+            if (activeZone && toastMessage?.startsWith('Entering')) {
+                triggerAutomaticSosForZone(activeZone, coords);
+            } else if (!activeZone && toastMessage?.startsWith('Leaving')) {
+                // Permit a fresh automatic-SOS decision if the user later re-enters a zone.
+                automaticSosZoneId.current = null;
             }
         }
 
@@ -288,6 +344,39 @@ export const SafetyMapScreen = () => {
         }
     };
 
+    const triggerAutomaticSosForZone = async (zone, coords) => {
+        const zoneId = zone._id || zone.hotspotId || zone.h3Index;
+        if (!autoSosEnabledRef.current || !zoneId || automaticSosZoneId.current === zoneId) return;
+
+        automaticSosZoneId.current = zoneId;
+        const [journeyResult, locationResult] = await Promise.all([
+            journeyService.getActive(),
+            locationService.syncLocation({
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+                accuracy: locationAccuracy,
+            }),
+        ]);
+
+        if (!journeyResult.success || !journeyResult.journey?._id || !locationResult.success || !locationResult.data?._id) {
+            setGeofenceToast('Danger-zone warning: Auto SOS needs an active journey and synced location.');
+            return;
+        }
+
+        const sosResult = await sosService.triggerAutomatic({
+            locationId: locationResult.data._id,
+            journeyId: journeyResult.journey._id,
+            reason: `Entered ${(zone.riskLevel || 'high').toUpperCase()} risk danger zone.`,
+        });
+
+        if (sosResult.success) {
+            setGeofenceToast('Automatic SOS sent. Emergency contacts have been notified.');
+        } else {
+            setGeofenceToast(sosResult.error?.message || 'Could not send automatic SOS. Open SOS to retry.');
+        }
+        setTimeout(() => setGeofenceToast(null), 5000);
+    };
+
     const loadDangerZones = async (coords = null, isSilent = false) => {
         if (!isSilent) setIsLoadingDangerZones(true);
         setDangerZoneError(null);
@@ -305,6 +394,7 @@ export const SafetyMapScreen = () => {
         if (res.success) {
             const zones = res.data || [];
             setDangerZones(zones);
+            dangerZonesRef.current = zones;
 
             if (zones.length > 0 && lat && lng) {
                 const { activeZone } = geofenceManager.evaluateLocation({ latitude: lat, longitude: lng }, zones);
@@ -381,6 +471,10 @@ export const SafetyMapScreen = () => {
 
     const activeZone = selectedZone || currentZone || (dangerZones.length > 0 ? dangerZones[0] : null);
     const activeRiskColors = activeZone ? getRiskColors(activeZone.riskLevel, activeZone.totalRiskScore ?? activeZone.crimeScore) : getRiskColors('SAFE');
+    const locationChatName = activeZone?.hotspotId ? `Near safety zone #${activeZone.hotspotId}` : 'Your current location';
+    // Keep the UI data shaped as location groups so real chat messages can be
+    // connected later without adding a new API or changing this layout.
+    const locationChatGroups = [{ location: locationChatName, preview: 'Local chat will appear here when community chat data is available.' }];
 
     return (
         <Screen style={styles.container} isSafe={false}>
@@ -392,6 +486,7 @@ export const SafetyMapScreen = () => {
                 userLocation={userLocation}
                 mapType={mapType}
                 dangerZones={filteredDangerZones}
+                communityIncidents={communityIncidents}
                 selectedZone={activeZone}
                 onSelectZone={handleSelectZone}
             />
@@ -773,7 +868,29 @@ export const SafetyMapScreen = () => {
                             </TouchableOpacity>
                         </View>
 
-                        {communityIncidents.length === 0 ? (
+                        {/* Frontend-only placeholders: ready to receive real location chat data later. */}
+                        {locationChatGroups.map(group => (
+                            <View key={group.location} style={styles.locationChatCard}>
+                                <View style={styles.locationChatTitle}>
+                                    <Ionicons name="location" size={18} color={colors.primary} />
+                                    <Text variant="labelLg" style={{ color: colors.primary, fontWeight: 'bold' }}>Location Chat · {group.location}</Text>
+                                </View>
+                                <Text variant="bodyMd" color={colors['on-surface-variant']}>{group.preview}</Text>
+                            </View>
+                        ))}
+
+                        {isLoadingCommunity ? (
+                            <View style={styles.communityState}>
+                                <ActivityIndicator size="large" color={colors.primary} />
+                            </View>
+                        ) : communityError ? (
+                            <View style={styles.communityState}>
+                                <Text variant="bodyMd" color={colors.error} style={{ textAlign: 'center' }}>{communityError}</Text>
+                                <TouchableOpacity style={styles.communityRetryButton} onPress={loadCommunityIncidents}>
+                                    <Text variant="labelMd" color={colors.white}>Try Again</Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : communityIncidents.length === 0 ? (
                             <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginVertical: spacing.xl }}>
                                 No community incidents reported nearby.
                             </Text>
@@ -1152,6 +1269,31 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.2)',
         width: '100%',
+    },
+    locationChatCard: {
+        width: '100%',
+        backgroundColor: colors['primary-container'],
+        borderRadius: shapes.roundedLg,
+        padding: spacing.md,
+        marginBottom: spacing.md,
+    },
+    locationChatTitle: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.xs,
+    },
+    communityState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.md,
+        paddingVertical: spacing.xl,
+    },
+    communityRetryButton: {
+        backgroundColor: colors.primary,
+        borderRadius: shapes.roundedPill,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
     },
     votingRow: {
         flexDirection: 'row',
