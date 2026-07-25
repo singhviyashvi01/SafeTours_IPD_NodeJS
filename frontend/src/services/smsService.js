@@ -10,7 +10,7 @@ export const smsService = {
    */
   async sendSOSTriggerSMS(location) {
     try {
-      // 1. Resolve location coordinates (use provided, fetch live, or fallback)
+      // 1. Resolve real location coordinates before opening the emergency message.
       let lat = location?.latitude;
       let lng = location?.longitude;
 
@@ -29,10 +29,9 @@ export const smsService = {
         }
       }
 
-      // Default fallback coordinates if location could not be determined
+      // Never send an SOS message with placeholder coordinates.
       if (!lat || !lng) {
-        lat = 18.9220;
-        lng = 72.8347;
+        return { success: false, message: 'A current location is required to prepare the SOS message.' };
       }
 
       // 2. Fetch emergency contacts

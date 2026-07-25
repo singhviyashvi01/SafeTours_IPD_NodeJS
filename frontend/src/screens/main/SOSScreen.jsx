@@ -8,13 +8,14 @@ import * as Location from 'expo-location';
 import { locationService } from '../../services/locationService';
 import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSidebar } from '../../context/SidebarContext';
 import { smsService } from '../../services/smsService';
 import { Toast } from '../../components/Toast';
 
 export const SOSScreen = () => {
     const navigation = useNavigation();
+    const route = useRoute();
     const { toggleDrawer } = useSidebar();
     const [isShadowMode, setIsShadowMode] = useState(true);
     const [showSafetyModal, setShowSafetyModal] = useState(false);
@@ -52,6 +53,11 @@ export const SOSScreen = () => {
 
         fetchCurrentLocation();
         loadActiveSOS();
+
+        // A navigation SOS request is sent immediately, so Home does not require a second tap.
+        if (route.params?.triggerSOS) {
+            handleSOSPress();
+        }
     }, []);
 
     // The backend does not expose a separate active-SOS endpoint. History contains
@@ -106,16 +112,30 @@ export const SOSScreen = () => {
         return () => clearInterval(interval);
     }, [showSafetyModal, countdown]);
 
-    // Helper to get or sync latest location and retrieve active journey
+    // Sync a real device location first so the existing SOS APIs receive a saved location ID.
     const prepareSOSData = async () => {
         let locationId = null;
-        const currentLat = userLocation?.latitude || 18.9220;
-        const currentLng = userLocation?.longitude || 72.8347;
+        let currentCoordinates = userLocation;
+
+        if (!currentCoordinates) {
+            await fetchCurrentLocation();
+            const { status } = await Location.getForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                currentCoordinates = {
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude,
+                };
+                setUserLocation(currentCoordinates);
+            }
+        }
+
+        if (!currentCoordinates) return { locationId: null, journeyId: null, coordinates: null };
 
         // Try syncing fresh location first to get locationId from Location API response
         const syncRes = await locationService.syncLocation({
-            latitude: currentLat,
-            longitude: currentLng,
+            latitude: currentCoordinates.latitude,
+            longitude: currentCoordinates.longitude,
             accuracy: 10,
         });
 
@@ -140,7 +160,7 @@ export const SOSScreen = () => {
             console.warn('Could not fetch active journey for SOS:', err);
         }
 
-        return { locationId, journeyId };
+        return { locationId, journeyId, coordinates: currentCoordinates };
     };
 
     const handleSOSPress = async () => {
@@ -148,7 +168,7 @@ export const SOSScreen = () => {
         setSosError(null);
         setStatusMessage('Broadcasting Emergency SOS...');
 
-        const { locationId, journeyId } = await prepareSOSData();
+        const { locationId, journeyId, coordinates } = await prepareSOSData();
 
         if (!locationId) {
             setIsSubmitting(false);
@@ -171,8 +191,8 @@ export const SOSScreen = () => {
             setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
             Alert.alert('SOS Broadcast Sent', 'Your emergency alert and live coordinates have been broadcast.');
             
-            // Trigger native SMS composer with emergency contacts
-            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+            // Open the existing SMS flow immediately after the backend SOS is created.
+            smsService.sendSOSTriggerSMS(coordinates).then((smsRes) => {
                 if (smsRes.success) {
                     setToastType('success');
                     setToastMessage(smsRes.message);
@@ -198,7 +218,7 @@ export const SOSScreen = () => {
         setSosError(null);
         setStatusMessage('Triggering Automatic SOS...');
 
-        const { locationId, journeyId } = await prepareSOSData();
+        const { locationId, journeyId, coordinates } = await prepareSOSData();
 
         if (!locationId || !journeyId) {
             setIsSubmitting(false);
@@ -220,8 +240,8 @@ export const SOSScreen = () => {
             setActiveSosRecord(res.data);
             setStatusMessage('AUTOMATIC SOS ACTIVE');
 
-            // Trigger native SMS composer with emergency contacts
-            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+            // Open the existing SMS flow immediately after the automatic SOS is created.
+            smsService.sendSOSTriggerSMS(coordinates).then((smsRes) => {
                 if (smsRes.success) {
                     setToastType('success');
                     setToastMessage(smsRes.message);
@@ -277,8 +297,8 @@ export const SOSScreen = () => {
         );
     };
 
-    const latStr = userLocation ? `${userLocation.latitude.toFixed(4)}° N` : '18.9220° N';
-    const lngStr = userLocation ? `${userLocation.longitude.toFixed(4)}° E` : '72.8347° E';
+    const latStr = userLocation ? `${userLocation.latitude.toFixed(4)}° N` : 'Location unavailable';
+    const lngStr = userLocation ? `${userLocation.longitude.toFixed(4)}° E` : '';
 
     return (
         <Screen style={styles.container}>
@@ -322,7 +342,7 @@ export const SOSScreen = () => {
                             {statusMessage}
                         </Text>
                         <Text variant="labelMd" style={[{ opacity: 0.8, textTransform: 'uppercase' }, activeSosRecord && { color: colors.white }]}>
-                            {activeSosRecord ? "Active Emergency Tracking" : "Tap and hold to broadcast"}
+                            {activeSosRecord ? "Active Emergency Tracking" : "Tap to broadcast immediately"}
                         </Text>
                     </View>
                 </View>
@@ -331,9 +351,7 @@ export const SOSScreen = () => {
                 <View style={styles.sosButtonContainer}>
                     <TouchableOpacity 
                         style={[styles.sosButton, activeSosRecord && { backgroundColor: colors['error-container'] }]}
-                        onLongPress={handleSOSPress}
                         onPress={handleSOSPress}
-                        delayLongPress={1000}
                         activeOpacity={0.8}
                         disabled={isSubmitting}
                     >

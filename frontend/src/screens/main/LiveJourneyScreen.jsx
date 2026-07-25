@@ -17,6 +17,7 @@ import { smsService } from '../../services/smsService';
 import { Toast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
+const SAFETY_RESPONSE_SECONDS = 60;
 
 export const LiveJourneyScreen = () => {
     const navigation = useNavigation();
@@ -37,17 +38,53 @@ export const LiveJourneyScreen = () => {
 
     // Form inputs for starting a new journey
     const [showStartModal, setShowStartModal] = useState(false);
-    const [destinationName, setDestinationName] = useState('Victoria Station');
-    const [destLat, setDestLat] = useState('18.9320');
-    const [destLng, setDestLng] = useState('72.8340');
-    const [etaMinutes, setEtaMinutes] = useState('25');
+    const [destLat, setDestLat] = useState('');
+    const [destLng, setDestLng] = useState('');
+    const [etaHours, setEtaHours] = useState('');
+    const [etaMinutes, setEtaMinutes] = useState('');
+    const [etaSeconds, setEtaSeconds] = useState('');
+    const [showSafetyPrompt, setShowSafetyPrompt] = useState(false);
+    const [safetyCountdown, setSafetyCountdown] = useState(SAFETY_RESPONSE_SECONDS);
 
     // Live GPS location
     const [userLocation, setUserLocation] = useState(null);
+    const promptedJourneyId = useRef(null);
+    const automaticSosJourneyId = useRef(null);
 
     useEffect(() => {
         loadInitialState();
     }, []);
+
+    useEffect(() => {
+        if (!activeJourney?.expectedArrivalTime || promptedJourneyId.current === activeJourney._id) return undefined;
+
+        // Use the backend-persisted ETA as the journey safety timer, including after an app restart.
+        const checkSafetyTimer = () => {
+            if (Date.now() >= new Date(activeJourney.expectedArrivalTime).getTime()) {
+                promptedJourneyId.current = activeJourney._id;
+                setSafetyCountdown(SAFETY_RESPONSE_SECONDS);
+                setShowSafetyPrompt(true);
+            }
+        };
+
+        checkSafetyTimer();
+        const interval = setInterval(checkSafetyTimer, 1000);
+        return () => clearInterval(interval);
+    }, [activeJourney]);
+
+    useEffect(() => {
+        if (!showSafetyPrompt || safetyCountdown <= 0) return undefined;
+
+        const interval = setInterval(() => setSafetyCountdown(value => value - 1), 1000);
+        return () => clearInterval(interval);
+    }, [showSafetyPrompt, safetyCountdown]);
+
+    useEffect(() => {
+        if (showSafetyPrompt && safetyCountdown === 0) {
+            setShowSafetyPrompt(false);
+            triggerAutomaticSOS();
+        }
+    }, [showSafetyPrompt, safetyCountdown]);
 
     const loadInitialState = async () => {
         setIsLoading(true);
@@ -101,14 +138,33 @@ export const LiveJourneyScreen = () => {
         setIsSubmitting(true);
         setErrorMessage(null);
 
-        const currentLat = userLocation?.latitude || 18.9220;
-        const currentLng = userLocation?.longitude || 72.8347;
+        const currentLat = userLocation?.latitude;
+        const currentLng = userLocation?.longitude;
 
-        const targetLat = Number(destLat) || 18.9320;
-        const targetLng = Number(destLng) || 72.8340;
+        const targetLat = Number(destLat);
+        const targetLng = Number(destLng);
 
-        const minutes = Number(etaMinutes) || 25;
-        const expectedArrivalTime = new Date(Date.now() + minutes * 60000).toISOString();
+        const durationSeconds = (Number(etaHours || 0) * 3600)
+            + (Number(etaMinutes || 0) * 60)
+            + Number(etaSeconds || 0);
+
+        if (!Number.isFinite(currentLat) || !Number.isFinite(currentLng)) {
+            setIsSubmitting(false);
+            setErrorMessage('Current location is required to start a journey.');
+            return;
+        }
+        if (!Number.isFinite(targetLat) || !Number.isFinite(targetLng)) {
+            setIsSubmitting(false);
+            setErrorMessage('Enter valid destination latitude and longitude.');
+            return;
+        }
+        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+            setIsSubmitting(false);
+            setErrorMessage('Choose a journey safety timer greater than zero.');
+            return;
+        }
+
+        const expectedArrivalTime = new Date(Date.now() + durationSeconds * 1000).toISOString();
 
         const payload = {
             startLocation: [currentLng, currentLat], // GeoJSON standard [lng, lat]
@@ -121,6 +177,8 @@ export const LiveJourneyScreen = () => {
 
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
+            promptedJourneyId.current = null;
+            automaticSosJourneyId.current = null;
             setShowStartModal(false);
             Alert.alert('Journey Started', res.message || 'Your journey is now being monitored.');
         } else {
@@ -158,21 +216,24 @@ export const LiveJourneyScreen = () => {
     const handleUpdateJourney = async () => {
         if (!activeJourney?._id) return;
 
-        const minutes = Number(etaMinutes);
-        if (!Number.isFinite(minutes) || minutes <= 0) {
-            setErrorMessage('Enter a valid ETA in minutes before updating the journey.');
+        const durationSeconds = (Number(etaHours || 0) * 3600)
+            + (Number(etaMinutes || 0) * 60)
+            + Number(etaSeconds || 0);
+        if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+            setErrorMessage('Choose a journey safety timer greater than zero before updating the journey.');
             return;
         }
 
         setIsSubmitting(true);
         setErrorMessage(null);
         const res = await journeyService.update(activeJourney._id, {
-            expectedArrivalTime: new Date(Date.now() + minutes * 60000).toISOString(),
+            expectedArrivalTime: new Date(Date.now() + durationSeconds * 1000).toISOString(),
         });
         setIsSubmitting(false);
 
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
+            promptedJourneyId.current = null;
             Alert.alert('Journey Updated', res.message || 'Your expected arrival time has been updated.');
         } else {
             setErrorMessage(res.error?.message || 'Failed to update journey.');
@@ -180,17 +241,12 @@ export const LiveJourneyScreen = () => {
     };
 
     const handleTriggerSOS = async () => {
-        Alert.alert(
-            'Emergency SOS',
-            'Trigger emergency alert for your current journey location?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Trigger SOS',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const currentLat = userLocation?.latitude || 18.9220;
-                        const currentLng = userLocation?.longitude || 72.8347;
+                        const currentLat = userLocation?.latitude;
+                        const currentLng = userLocation?.longitude;
+                        if (!Number.isFinite(currentLat) || !Number.isFinite(currentLng)) {
+                            Alert.alert('SOS Failure', 'Current location is required to trigger SOS.');
+                            return;
+                        }
 
                         // The SOS API accepts a saved location ID, not raw map coordinates.
                         const locationResult = await locationService.syncLocation({
@@ -228,16 +284,64 @@ export const LiveJourneyScreen = () => {
                         } else {
                             Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
                         }
-                    }
-                }
-            ]
-        );
+    };
+
+    // Trigger the existing automatic SOS endpoint once when the user does not answer the ETA prompt.
+    const triggerAutomaticSOS = async () => {
+        if (!activeJourney?._id || automaticSosJourneyId.current === activeJourney._id) return;
+        if (!userLocation) {
+            Alert.alert('SOS Failure', 'Current location is required to trigger automatic SOS.');
+            return;
+        }
+
+        automaticSosJourneyId.current = activeJourney._id;
+        const locationResult = await locationService.syncLocation({
+            latitude: userLocation.latitude,
+            longitude: userLocation.longitude,
+            accuracy: 10,
+        });
+        if (!locationResult.success || !locationResult.data?._id) {
+            automaticSosJourneyId.current = null;
+            Alert.alert('SOS Failure', locationResult.error?.message || 'Could not sync your location for SOS.');
+            return;
+        }
+
+        const result = await sosService.triggerAutomatic({
+            locationId: locationResult.data._id,
+            journeyId: activeJourney._id,
+            reason: 'Journey safety timer expired without a response.',
+        });
+        if (result.success) {
+            smsService.sendSOSTriggerSMS(userLocation);
+            navigation.navigate('SOS');
+        } else {
+            automaticSosJourneyId.current = null;
+            Alert.alert('SOS Failure', result.error?.message || 'Could not trigger automatic SOS.');
+        }
+    };
+
+    // Restart the backend ETA timer from the same duration after the traveler confirms they are okay.
+    const handleSafetyCheckIn = async () => {
+        const originalDuration = new Date(activeJourney.expectedArrivalTime).getTime()
+            - new Date(activeJourney.startTime).getTime();
+        if (!Number.isFinite(originalDuration) || originalDuration <= 0) return;
+
+        const result = await journeyService.update(activeJourney._id, {
+            expectedArrivalTime: new Date(Date.now() + originalDuration).toISOString(),
+        });
+        if (result.success && result.journey) {
+            promptedJourneyId.current = null;
+            setActiveJourney(result.journey);
+            setShowSafetyPrompt(false);
+        } else {
+            setErrorMessage(result.error?.message || 'Could not restart the journey safety timer.');
+        }
     };
 
     // Calculate arrival time string
     const etaFormatted = activeJourney?.expectedArrivalTime
         ? new Date(activeJourney.expectedArrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : '18:45';
+        : '—';
 
     return (
         <Screen style={styles.container} isSafe={false}>
@@ -248,12 +352,12 @@ export const LiveJourneyScreen = () => {
             />
             {/* Map View */}
             <MapComponent 
-                region={{
-                    latitude: userLocation?.latitude || 18.9220,
-                    longitude: userLocation?.longitude || 72.8347,
+                region={userLocation ? {
+                    latitude: userLocation.latitude,
+                    longitude: userLocation.longitude,
                     latitudeDelta: 0.02,
                     longitudeDelta: 0.02,
-                }}
+                } : undefined}
                 userLocation={userLocation}
                 dangerZones={dangerZones}
             />
@@ -271,7 +375,7 @@ export const LiveJourneyScreen = () => {
                         {activeJourney ? "Active Journey To" : "Destination"}
                     </Text>
                     <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>
-                        {activeJourney ? destinationName : "No Active Journey"}
+                                {activeJourney ? `${activeJourney.destination?.coordinates?.[1] ?? '—'}, ${activeJourney.destination?.coordinates?.[0] ?? '—'}` : "No Active Journey"}
                     </Text>
                 </View>
                 {activeJourney ? (
@@ -365,7 +469,7 @@ export const LiveJourneyScreen = () => {
                                 value={etaMinutes}
                                 onChangeText={setEtaMinutes}
                                 keyboardType="numeric"
-                                placeholder="ETA minutes"
+                                placeholder="Minutes"
                             />
                             <TouchableOpacity
                                 style={styles.updateEtaButton}
@@ -441,22 +545,18 @@ export const LiveJourneyScreen = () => {
                             </TouchableOpacity>
                         </View>
 
-                        <Text variant="labelLg" style={{ marginBottom: 4 }}>Destination Name</Text>
-                        <TextInput 
-                            style={styles.input}
-                            value={destinationName}
-                            onChangeText={setDestinationName}
-                            placeholder="e.g. Victoria Station"
-                        />
+                        <Text variant="labelLg" style={{ marginBottom: 4 }}>Destination Latitude</Text>
+                        <TextInput style={styles.input} value={destLat} onChangeText={setDestLat} keyboardType="decimal-pad" placeholder="Latitude" />
 
-                        <Text variant="labelLg" style={{ marginBottom: 4 }}>ETA (Minutes)</Text>
-                        <TextInput 
-                            style={styles.input}
-                            value={etaMinutes}
-                            onChangeText={setEtaMinutes}
-                            keyboardType="numeric"
-                            placeholder="25"
-                        />
+                        <Text variant="labelLg" style={{ marginBottom: 4 }}>Destination Longitude</Text>
+                        <TextInput style={styles.input} value={destLng} onChangeText={setDestLng} keyboardType="decimal-pad" placeholder="Longitude" />
+
+                        <Text variant="labelLg" style={{ marginBottom: 4 }}>Journey Safety Timer</Text>
+                        <View style={styles.timerInputs}>
+                            <TextInput style={[styles.input, styles.timerInput]} value={etaHours} onChangeText={setEtaHours} keyboardType="numeric" placeholder="Hours" />
+                            <TextInput style={[styles.input, styles.timerInput]} value={etaMinutes} onChangeText={setEtaMinutes} keyboardType="numeric" placeholder="Minutes" />
+                            <TextInput style={[styles.input, styles.timerInput]} value={etaSeconds} onChangeText={setEtaSeconds} keyboardType="numeric" placeholder="Seconds" />
+                        </View>
 
                         <TouchableOpacity 
                             style={styles.modalSubmitBtn}
@@ -470,6 +570,23 @@ export const LiveJourneyScreen = () => {
                                     Confirm & Start Journey
                                 </Text>
                             )}
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            <Modal visible={showSafetyPrompt} transparent animationType="fade">
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <Text variant="headlineMd" style={{ fontWeight: 'bold', marginBottom: 8 }}>Are you okay?</Text>
+                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginBottom: 16 }}>
+                            Please respond within {safetyCountdown} seconds to avoid an automatic SOS.
+                        </Text>
+                        <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleSafetyCheckIn}>
+                            <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>YES, I'M OK</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowSafetyPrompt(false)}>
+                            <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>NOT NOW</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -728,6 +845,13 @@ const styles = StyleSheet.create({
         fontSize: typography.sizes.bodyLg,
         color: colors['on-surface'],
         marginBottom: spacing.lg,
+    },
+    timerInputs: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+    },
+    timerInput: {
+        flex: 1,
     },
     modalSubmitBtn: {
         height: 52,

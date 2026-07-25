@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
+import * as Location from 'expo-location';
+import { profileService } from '../../services/profile';
 
 const getGreeting = () => {
     const hour = new Date().getHours();
@@ -28,15 +30,46 @@ export const HomeScreen = () => {
     const { toggleDrawer } = useSidebar();
     const netInfo = useNetInfo();
     const [data, setData] = useState(null);
+    const [loadError, setLoadError] = useState(null);
+    const [profile, setProfile] = useState(null);
+
     useEffect(() => {
-        dashboardService.getDashboardData().then(setData).catch(err => console.warn('Dashboard load error:', err));
+        // Load location-specific backend values instead of displaying dashboard mock data.
+        const loadDashboard = async () => {
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                    throw new Error('Location permission is required to load your safety summary.');
+                }
+                const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                const dashboardData = await dashboardService.getDashboardData(
+                    location.coords.latitude,
+                    location.coords.longitude
+                );
+                setData(dashboardData);
+            } catch (error) {
+                console.warn('Dashboard load error:', error);
+                setLoadError(error.message || 'Could not load your safety summary.');
+            }
+        };
+
+        loadDashboard();
+    }, []);
+
+    useEffect(() => {
+        // Read the existing authenticated profile so the greeting uses the person's actual name.
+        profileService.getProfile().then(setProfile).catch(error => {
+            console.warn('Profile name load error:', error);
+        });
     }, []);
 
     // NetInfo subscribes to connection changes, so the badge updates without polling.
     const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
-    const displayName = user?.name || user?.username || 'Traveler';
+    // Display the authenticated profile name; usernames are not presented as a name fallback.
+    const displayName = profile?.name || profile?.firstName || profile?.fullName
+        || user?.name || user?.firstName || user?.fullName || 'Traveler';
 
-    if (!data) {
+    if (!data && !loadError) {
         return (
             <Screen style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color={colors.primary} />
@@ -77,56 +110,45 @@ export const HomeScreen = () => {
                     <Text variant="bodyMd" color={colors.primary} style={styles.greetingSub}>Your safety summary for today.</Text>
                 </View>
 
-                {/* Safety Score Card (Hero) */}
-                <GlassCard style={styles.heroCard}>
-                    <View style={styles.heroHeader}>
-                        <Text variant="headlineSm" color={colors['on-surface']}>Safety Score</Text>
-                        <Chip label="Very Safe" variant="success" backgroundColor={colors['tertiary-container']} textColor={colors['on-tertiary-container']} />
-                    </View>
-                    <View style={styles.heroBody}>
-                        <View style={styles.scoreCircle}>
-                            <Text style={styles.scoreText}>{data.safetyScore}</Text>
-                            <Text style={styles.scoreMax}>/100</Text>
+                {loadError ? (
+                    <InfoCard style={styles.heroCard}>
+                        <Text variant="bodyMd" color={colors.error}>{loadError}</Text>
+                    </InfoCard>
+                ) : (
+                    <GlassCard style={styles.heroCard}>
+                        <View style={styles.heroHeader}>
+                            <Text variant="headlineSm" color={colors['on-surface']}>Crime Score</Text>
+                            <Chip label={data.crime?.riskLevel || 'Unavailable'} variant="info" />
                         </View>
-                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={styles.scoreDesc}>
-                            Your surroundings are secure. No active alerts in your immediate vicinity.
-                        </Text>
-                    </View>
-                </GlassCard>
+                        <View style={styles.heroBody}>
+                            <View style={styles.scoreCircle}>
+                                <Text style={styles.scoreText}>{data.crime?.crimeScore ?? '—'}</Text>
+                            </View>
+                            <Text variant="bodyMd" color={colors['on-surface-variant']} style={styles.scoreDesc}>
+                                Current risk level: {data.crime?.riskLevel || 'Unavailable'}
+                            </Text>
+                        </View>
+                    </GlassCard>
+                )}
 
                 {/* Weather & Connectivity Row */}
                 <View style={styles.rowCards}>
                     <InfoCard style={styles.halfCard}>
                         <View style={styles.halfCardHeader}>
                             <Ionicons name="partly-sunny" size={24} color={colors.primary} />
-                            <Text variant="headlineMd" style={styles.halfCardValue}>{data.weather.temp}°C</Text>
+                            <Text variant="headlineMd" style={styles.halfCardValue}>{data?.weather?.temperature ?? '—'}{data?.weather?.temperature != null ? '°C' : ''}</Text>
                         </View>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>{data.weather.condition}</Text>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>AQI: Good (42)</Text>
+                        <Text variant="labelMd" color={colors['on-surface-variant']}>{data?.weather?.weatherDescription || 'Weather unavailable'}</Text>
                     </InfoCard>
                     <InfoCard style={styles.halfCard}>
                         <View style={styles.halfCardHeader}>
                             <Ionicons name="wifi" size={24} color={colors.tertiary} />
-                            <Text variant="headlineMd" style={styles.halfCardValue}>Strong</Text>
+                            <Text variant="headlineMd" style={styles.halfCardValue}>{isOnline ? 'Connected' : 'Offline'}</Text>
                         </View>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>{data.connectivity.network}</Text>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>Connected</Text>
+                        <Text variant="labelMd" color={colors['on-surface-variant']}>{netInfo.type || 'Unknown network'}</Text>
                     </InfoCard>
                 </View>
 
-                {/* AI Safety Assistant */}
-                <InfoCard style={styles.aiCard}>
-                    <View style={styles.aiHeader}>
-                        <Ionicons name="sparkles" size={20} color={colors['on-primary-container']} />
-                        <Text variant="headlineSm" style={styles.aiTitle}>AI Safety Assistant</Text>
-                    </View>
-                    {data.aiRecommendations.map((rec, index) => (
-                        <View key={index} style={styles.recItem}>
-                            <View style={styles.recBullet} />
-                            <Text variant="bodyMd" color={colors['on-surface']}>{rec}</Text>
-                        </View>
-                    ))}
-                </InfoCard>
 
                 {/* Quick Actions */}
                 <View style={styles.quickActions}>
@@ -159,7 +181,7 @@ export const HomeScreen = () => {
 
             {/* Floating SOS Button */}
             <View style={styles.floatingSosContainer}>
-                <SOSButton onPress={() => navigation.navigate('SOS')} size={64} style={styles.floatingSos} />
+                <SOSButton onPress={() => navigation.navigate('SOS', { triggerSOS: true })} size={64} style={styles.floatingSos} />
             </View>
         </Screen>
     );
