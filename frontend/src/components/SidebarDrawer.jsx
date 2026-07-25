@@ -3,6 +3,7 @@ import { Animated, Dimensions, Modal, Pressable, StyleSheet, View } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
 import { colors, shapes, spacing } from '../theme/theme';
+import { navigationRef } from '../navigation/navigationRef';
 
 const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 320);
 
@@ -16,13 +17,22 @@ const MENU_ITEMS = [
 ];
 
 /**
- * UI-only replacement for the former bottom tabs. Routes are intentionally
- * unchanged: this component only calls the same tab route names.
+ * Global navigation drawer component accessible from all screens.
  */
-export const SidebarDrawer = ({ visible, onClose, navigation, activeRoute = 'Home' }) => {
+export const SidebarDrawer = ({ visible, onClose, navigation: propNavigation, activeRoute: propActiveRoute }) => {
   const [mounted, setMounted] = useState(visible);
   const slideX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+
+  let currentRouteName = 'Home';
+  if (navigationRef.isReady()) {
+    const route = navigationRef.getCurrentRoute();
+    if (route && route.name) {
+      currentRouteName = route.name;
+    }
+  }
+
+  const activeRoute = propActiveRoute || currentRouteName;
 
   useEffect(() => {
     if (visible) {
@@ -44,12 +54,12 @@ export const SidebarDrawer = ({ visible, onClose, navigation, activeRoute = 'Hom
 
   const navigateToItem = item => {
     onClose();
-    // The community feed already lives in the map screen, so this opens that
-    // existing UI instead of creating a duplicate Community screen.
-    navigation.navigate(
-      item.route,
-      item.opensCommunity ? { communityRequestId: Date.now() } : undefined
-    );
+    const params = item.opensCommunity ? { communityRequestId: Date.now() } : undefined;
+    if (propNavigation) {
+      propNavigation.navigate(item.route, params);
+    } else if (navigationRef.isReady()) {
+      navigationRef.navigate(item.route, params);
+    }
   };
 
   if (!mounted) return null;

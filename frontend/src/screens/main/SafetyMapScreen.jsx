@@ -15,6 +15,8 @@ import { journeyService } from '../../services/journeys';
 import { profileService } from '../../services/profile';
 import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
 import { LocationStatusModal } from '../../components/LocationStatusModal';
+import { useSidebar } from '../../context/SidebarContext';
+import { smsService } from '../../services/smsService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,6 +30,7 @@ const DEFAULT_REGION = {
 
 export const SafetyMapScreen = ({ route }) => {
     const navigation = useNavigation();
+    const { toggleDrawer } = useSidebar();
     const [searchQuery, setSearchQuery] = useState('');
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
     
@@ -370,7 +373,17 @@ export const SafetyMapScreen = ({ route }) => {
         });
 
         if (sosResult.success) {
-            setGeofenceToast('Automatic SOS sent. Emergency contacts have been notified.');
+            setGeofenceToast('Automatic SOS sent. Opening SMS Composer...');
+            smsService.sendSOSTriggerSMS(coords).then((smsRes) => {
+                if (smsRes.success) {
+                    setGeofenceToast('Automatic SOS sent & SMS Composer opened.');
+                } else {
+                    setGeofenceToast(`Automatic SOS sent. SMS Alert status: ${smsRes.message}`);
+                }
+            }).catch((err) => {
+                console.error('[SafetyMapScreen] SMS error:', err);
+                setGeofenceToast('Automatic SOS sent. SMS failed to open.');
+            });
         } else {
             setGeofenceToast(sosResult.error?.message || 'Could not send automatic SOS. Open SOS to retry.');
         }
@@ -493,24 +506,29 @@ export const SafetyMapScreen = ({ route }) => {
 
             {/* Top Search & Diagnostics Bar */}
             <View style={styles.topSearchContainer}>
-                <View style={styles.searchBar}>
-                    <Ionicons name="search" size={20} color={colors['on-surface-variant']} />
-                    <TextInput 
-                        style={styles.searchInput}
-                        placeholder="Search zones by ID, risk, or crime..."
-                        placeholderTextColor={colors['on-surface-variant']}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                    />
-                    {searchQuery ? (
-                        <TouchableOpacity style={styles.micButton} onPress={() => setSearchQuery('')}>
-                            <Ionicons name="close-circle" size={20} color={colors.outline} />
-                        </TouchableOpacity>
-                    ) : (
-                        <TouchableOpacity style={styles.micButton}>
-                            <Ionicons name="mic" size={20} color={colors.primary} />
-                        </TouchableOpacity>
-                    )}
+                <View style={styles.searchHeaderRow}>
+                    <TouchableOpacity style={styles.menuButton} onPress={toggleDrawer} accessibilityLabel="Open menu">
+                        <Ionicons name="menu" size={26} color={colors.primary} />
+                    </TouchableOpacity>
+                    <View style={styles.searchBar}>
+                        <Ionicons name="search" size={20} color={colors['on-surface-variant']} />
+                        <TextInput 
+                            style={styles.searchInput}
+                            placeholder="Search zones by ID, risk, or crime..."
+                            placeholderTextColor={colors['on-surface-variant']}
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                        />
+                        {searchQuery ? (
+                            <TouchableOpacity style={styles.micButton} onPress={() => setSearchQuery('')}>
+                                <Ionicons name="close-circle" size={20} color={colors.outline} />
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity style={styles.micButton}>
+                                <Ionicons name="mic" size={20} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                    </View>
                 </View>
 
                 {/* Connection, Live Tracking & Diagnostics Trigger Status Row */}
@@ -951,13 +969,35 @@ const styles = StyleSheet.create({
         right: spacing.md,
         zIndex: 10,
     },
+    searchHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.xs,
+    },
+    menuButton: {
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 5,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.3)',
+    },
     searchBar: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
         borderRadius: shapes.roundedPill,
         paddingHorizontal: spacing.md,
-        height: 56,
+        height: 52,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.1,

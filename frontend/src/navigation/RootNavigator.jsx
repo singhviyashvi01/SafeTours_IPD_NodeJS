@@ -15,6 +15,8 @@ import { JourneyHistoryScreen } from '../screens/main/JourneyHistoryScreen';
 import { SOSHistoryScreen } from '../screens/main/SOSHistoryScreen';
 import { LiveJourneyScreen } from '../screens/main/LiveJourneyScreen';
 import { useAuth } from '../context/AuthContext';
+import { SidebarProvider } from '../context/SidebarContext';
+import { navigationRef } from './navigationRef';
 
 const Stack = createNativeStackNavigator();
 
@@ -48,16 +50,18 @@ export const RootNavigator = () => {
   }
 
   return (
-    <NavigationContainer>
-      {isAuthenticated || user ? (
-        isProfileComplete ? (
-          <MainNavigator />
+    <NavigationContainer ref={navigationRef}>
+      <SidebarProvider>
+        {isAuthenticated || user ? (
+          isProfileComplete ? (
+            <MainNavigator />
+          ) : (
+            <CompleteProfileNavigator />
+          )
         ) : (
-          <CompleteProfileNavigator />
-        )
-      ) : (
-        <AuthNavigator />
-      )}
+          <AuthNavigator />
+        )}
+      </SidebarProvider>
     </NavigationContainer>
   );
 };

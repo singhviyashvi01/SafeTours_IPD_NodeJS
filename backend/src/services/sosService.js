@@ -3,6 +3,7 @@ const Location = require('../models/Location');
 const Journey = require('../models/Journey');
 const EmergencyContact = require('../models/EmergencyContact');
 const notificationService = require('./notificationService');
+const smsService = require('./smsService');
 const ApiError = require('../utils/apiError');
 const logger = require('../utils/logger');
 
@@ -99,6 +100,17 @@ class SOSService {
       console.error('[NotificationService] Failed to create SOS notification:', err.message);
     });
 
+    // 7. Fire-and-forget server-side automatic SMS dispatch to emergency contacts
+    smsService.sendSOSToSMSContacts({
+      userId,
+      contacts,
+      locationDoc,
+      type,
+      reason: sosRecord.reason,
+    }).catch((err) => {
+      logger.error('[SMSService] Automatic SMS dispatch failed:', err.message);
+    });
+
     return sosRecord;
   }
 
@@ -183,6 +195,17 @@ class SOSService {
         .catch((err) => {
           logger.error('[NotificationService] Failed to create Geofence SOS notification:', err.message);
         });
+
+      // 7. Fire-and-forget server-side automatic SMS dispatch to emergency contacts
+      smsService.sendSOSToSMSContacts({
+        userId,
+        contacts,
+        locationDoc,
+        type: 'automatic',
+        reason: sosRecord.reason,
+      }).catch((err) => {
+        logger.error('[SMSService] Automatic Geofence SMS dispatch failed:', err.message);
+      });
 
       return { triggered: true, sos: sosRecord };
     } catch (error) {

@@ -4,13 +4,18 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
+import { useSidebar } from '../../context/SidebarContext';
 
 export const AISafetyAssistantScreen = () => {
+    const { toggleDrawer } = useSidebar();
     return (
         <Screen style={styles.container}>
             {/* Top Navigation */}
             <View style={styles.header}>
                 <View style={styles.headerTitleContainer}>
+                    <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu" style={{ marginRight: 4 }}>
+                        <Ionicons name="menu" size={28} color={colors.primary} />
+                    </TouchableOpacity>
                     <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>AI Assistant</Text>
                     <View style={styles.liveIndicator}>
                         <View style={styles.liveDot} />

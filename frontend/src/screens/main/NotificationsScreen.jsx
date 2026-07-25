@@ -7,8 +7,10 @@ import { colors, spacing, shapes } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { notificationService } from '../../services/notifications';
 import { formatApiError } from '../../services/apiClient';
+import { useSidebar } from '../../context/SidebarContext';
 
 export const NotificationsScreen = ({ navigation }) => {
+  const { toggleDrawer } = useSidebar();
   const [activeFilter, setActiveFilter] = useState('All');
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,9 +73,14 @@ export const NotificationsScreen = ({ navigation }) => {
     <Screen style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text variant="headlineMd" style={{ fontWeight: 'bold', color: colors.primary }}>
-          History & Alerts
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
+            <Ionicons name="menu" size={28} color={colors.primary} />
+          </TouchableOpacity>
+          <Text variant="headlineMd" style={{ fontWeight: 'bold', color: colors.primary }}>
+            History & Alerts
+          </Text>
+        </View>
         <TouchableOpacity style={styles.headerBtn} onPress={fetchNotifications}>
           <Ionicons name="refresh-outline" size={24} color={colors.primary} />
         </TouchableOpacity>

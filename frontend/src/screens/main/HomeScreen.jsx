@@ -12,7 +12,7 @@ import { dashboardService } from '../../services/dashboard';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { SidebarDrawer } from '../../components/SidebarDrawer';
+import { useSidebar } from '../../context/SidebarContext';
 
 const getGreeting = () => {
     const hour = new Date().getHours();
@@ -25,9 +25,9 @@ const getGreeting = () => {
 export const HomeScreen = () => {
     const navigation = useNavigation();
     const { user } = useAuth();
+    const { toggleDrawer } = useSidebar();
     const netInfo = useNetInfo();
     const [data, setData] = useState(null);
-    const [drawerVisible, setDrawerVisible] = useState(false);
     useEffect(() => {
         dashboardService.getDashboardData().then(setData).catch(err => console.warn('Dashboard load error:', err));
     }, []);
@@ -49,7 +49,7 @@ export const HomeScreen = () => {
             {/* Top Navigation */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
-                    <TouchableOpacity onPress={() => setDrawerVisible(current => !current)} accessibilityLabel="Open menu">
+                    <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
                         <Ionicons name="menu" size={28} color={colors.primary} />
                     </TouchableOpacity>
                     <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
@@ -161,13 +161,6 @@ export const HomeScreen = () => {
             <View style={styles.floatingSosContainer}>
                 <SOSButton onPress={() => navigation.navigate('SOS')} size={64} style={styles.floatingSos} />
             </View>
-
-            <SidebarDrawer
-                visible={drawerVisible}
-                onClose={() => setDrawerVisible(false)}
-                navigation={navigation}
-                activeRoute="Home"
-            />
         </Screen>
     );
 };

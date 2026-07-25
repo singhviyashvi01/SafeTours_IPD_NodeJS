@@ -7,10 +7,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { profileService } from '../../services/profile';
+import { useSidebar } from '../../context/SidebarContext';
 
 export const SettingsScreen = () => {
     const navigation = useNavigation();
     const { logout } = useAuth();
+    const { toggleDrawer } = useSidebar();
     const [offlineMode, setOfflineMode] = useState(false);
     const [notificationsEnabled, setNotificationsEnabled] = useState(true);
     const [locationPermissions, setLocationPermissions] = useState(true);
@@ -55,6 +57,9 @@ export const SettingsScreen = () => {
     return (
         <Screen style={styles.container}>
             <View style={styles.header}>
+                <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu" style={{ marginRight: spacing.sm }}>
+                    <Ionicons name="menu" size={28} color={colors.primary} />
+                </TouchableOpacity>
                 <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>Settings</Text>
             </View>
 
@@ -175,6 +180,8 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background,
     },
     header: {
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: spacing.lg,
         paddingTop: spacing.xl,
         paddingBottom: spacing.md,

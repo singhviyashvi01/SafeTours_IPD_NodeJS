@@ -13,6 +13,7 @@
     "expo-constants": "~17.0.8",
     "expo-location": "~19.0.8",
     "expo-secure-store": "~15.0.8",
+    "expo-sms": "^57.0.1",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",

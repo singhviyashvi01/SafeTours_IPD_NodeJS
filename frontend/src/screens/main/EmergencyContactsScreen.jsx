@@ -79,10 +79,12 @@ export const EmergencyContactsScreen = ({ navigation }) => {
       />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color={colors.primary} />
-        </TouchableOpacity>
-        <Text variant="headlineMd" style={styles.title}>Emergency Contacts</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <Text variant="headlineMd" style={styles.title}>Emergency Contacts</Text>
+        </View>
         <TouchableOpacity onPress={() => navigation.navigate('ContactForm')}>
           <Ionicons name="add" size={26} color={colors.primary} />
         </TouchableOpacity>

@@ -15,6 +15,7 @@ import { DataState } from '../../components/DataState';
 import { Toast } from '../../components/Toast';
 import { medicalService } from '../../services/medical';
 import { formatApiError } from '../../services/apiClient';
+import { useSidebar } from '../../context/SidebarContext';
 import { colors, spacing, shapes } from '../../theme/theme';
 
 const fields = [
@@ -33,6 +34,7 @@ const readable = key =>
     .replace(/^./, char => char.toUpperCase());
 
 export const MedicalIdScreen = ({ navigation }) => {
+  const { toggleDrawer } = useSidebar();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -89,10 +91,15 @@ export const MedicalIdScreen = ({ navigation }) => {
       />
 
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color={colors.primary} />
-        </TouchableOpacity>
-        <Text variant="headlineMd" style={styles.title}>Medical ID</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
+            <Ionicons name="menu" size={26} color={colors.primary} />
+          </TouchableOpacity>
+          <Text variant="headlineMd" style={styles.title}>Medical ID</Text>
+        </View>
         <Ionicons name="medkit" size={24} color={colors.primary} />
       </View>
 

@@ -6,8 +6,10 @@ import { InfoCard } from '../../components/ReusableCards';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { emergencyService } from '../../services/emergency';
 import { Ionicons } from '@expo/vector-icons';
+import { useSidebar } from '../../context/SidebarContext';
 
 export const EmergencyServicesScreen = () => {
+    const { toggleDrawer } = useSidebar();
     const [services, setServices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeFilter, setActiveFilter] = useState('All');
@@ -34,7 +36,12 @@ export const EmergencyServicesScreen = () => {
         <Screen style={styles.container}>
             {/* Top Navigation */}
             <View style={styles.header}>
-                <Text variant="headlineMd" style={styles.headerTitle}>Nearby Services</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                    <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
+                        <Ionicons name="menu" size={28} color={colors.primary} />
+                    </TouchableOpacity>
+                    <Text variant="headlineMd" style={styles.headerTitle}>Nearby Services</Text>
+                </View>
                 <TouchableOpacity>
                     <Ionicons name="refresh" size={24} color={colors.primary} />
                 </TouchableOpacity>

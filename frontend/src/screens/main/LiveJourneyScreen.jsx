@@ -12,12 +12,20 @@ import { locationService } from '../../services/locationService';
 import { MapComponent } from '../../components/MapComponent';
 import { dangerZoneService } from '../../services/dangerZoneService';
 import { geofenceManager } from '../../utils/geofenceManager';
+import { useSidebar } from '../../context/SidebarContext';
+import { smsService } from '../../services/smsService';
+import { Toast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
 
 export const LiveJourneyScreen = () => {
     const navigation = useNavigation();
+    const { toggleDrawer } = useSidebar();
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(true);
+
+    // Toast States
+    const [toastMessage, setToastMessage] = useState(null);
+    const [toastType, setToastType] = useState('error');
     
     // Journey state
     const [activeJourney, setActiveJourney] = useState(null);
@@ -203,6 +211,20 @@ export const LiveJourneyScreen = () => {
 
                         if (res.success) {
                             navigation.navigate('SOS');
+                            // Trigger native SMS composer with emergency contacts
+                            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+                                if (smsRes.success) {
+                                    setToastType('success');
+                                    setToastMessage(smsRes.message);
+                                } else {
+                                    setToastType('error');
+                                    setToastMessage(smsRes.message);
+                                }
+                            }).catch((err) => {
+                                console.error('[LiveJourneyScreen] SMS composer error:', err);
+                                setToastType('error');
+                                setToastMessage(err.message || 'Failed to open SMS composer.');
+                            });
                         } else {
                             Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
                         }
@@ -219,6 +241,11 @@ export const LiveJourneyScreen = () => {
 
     return (
         <Screen style={styles.container} isSafe={false}>
+            <Toast
+                message={toastMessage}
+                type={toastType}
+                onDismiss={() => setToastMessage(null)}
+            />
             {/* Map View */}
             <MapComponent 
                 region={{
@@ -235,6 +262,9 @@ export const LiveJourneyScreen = () => {
             <View style={styles.topHeader}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                     <Ionicons name="arrow-back" size={24} color={colors['on-surface']} />
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.backBtn, { marginLeft: 8 }]} onPress={toggleDrawer} accessibilityLabel="Open menu">
+                    <Ionicons name="menu" size={24} color={colors.primary} />
                 </TouchableOpacity>
                 <View style={styles.destinationBox}>
                     <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>

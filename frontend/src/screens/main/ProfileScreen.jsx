@@ -18,6 +18,7 @@ import { formatApiError } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { useSidebar } from '../../context/SidebarContext';
 
 const blankMedical = {
   bloodGroup: '',
@@ -41,6 +42,7 @@ const blankSettings = {
 export const ProfileScreen = () => {
   const navigation = useNavigation();
   const { logout, isProfileComplete } = useAuth();
+  const { toggleDrawer } = useSidebar();
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -141,6 +143,9 @@ export const ProfileScreen = () => {
         <View style={styles.headerLeft}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
+            <Ionicons name="menu" size={26} color={colors.primary} />
           </TouchableOpacity>
           <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
         </View>

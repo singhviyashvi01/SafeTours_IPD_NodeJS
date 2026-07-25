@@ -9,13 +9,21 @@ import { locationService } from '../../services/locationService';
 import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
 import { useNavigation } from '@react-navigation/native';
+import { useSidebar } from '../../context/SidebarContext';
+import { smsService } from '../../services/smsService';
+import { Toast } from '../../components/Toast';
 
 export const SOSScreen = () => {
     const navigation = useNavigation();
+    const { toggleDrawer } = useSidebar();
     const [isShadowMode, setIsShadowMode] = useState(true);
     const [showSafetyModal, setShowSafetyModal] = useState(false);
     const [showShareSheet, setShowShareSheet] = useState(false);
     const [countdown, setCountdown] = useState(60);
+
+    // Toast States
+    const [toastMessage, setToastMessage] = useState(null);
+    const [toastType, setToastType] = useState('error');
 
     // SOS States
     const [activeSosRecord, setActiveSosRecord] = useState(null);
@@ -162,6 +170,21 @@ export const SOSScreen = () => {
             setActiveSosRecord(res.data);
             setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
             Alert.alert('SOS Broadcast Sent', 'Your emergency alert and live coordinates have been broadcast.');
+            
+            // Trigger native SMS composer with emergency contacts
+            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+                if (smsRes.success) {
+                    setToastType('success');
+                    setToastMessage(smsRes.message);
+                } else {
+                    setToastType('error');
+                    setToastMessage(smsRes.message);
+                }
+            }).catch((err) => {
+                console.error('[SOSScreen] SMS composer error:', err);
+                setToastType('error');
+                setToastMessage(err.message || 'Failed to open SMS composer.');
+            });
         } else {
             setStatusMessage('SOS Status: Ready');
             const message = res.error?.message || 'Could not send emergency alert.';
@@ -196,6 +219,21 @@ export const SOSScreen = () => {
         if (res.success) {
             setActiveSosRecord(res.data);
             setStatusMessage('AUTOMATIC SOS ACTIVE');
+
+            // Trigger native SMS composer with emergency contacts
+            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+                if (smsRes.success) {
+                    setToastType('success');
+                    setToastMessage(smsRes.message);
+                } else {
+                    setToastType('error');
+                    setToastMessage(smsRes.message);
+                }
+            }).catch((err) => {
+                console.error('[SOSScreen] SMS composer error:', err);
+                setToastType('error');
+                setToastMessage(err.message || 'Failed to open SMS composer.');
+            });
         } else {
             setStatusMessage('SOS Status: Ready');
             const message = res.error?.message || 'Could not send automatic emergency alert.';
@@ -244,9 +282,17 @@ export const SOSScreen = () => {
 
     return (
         <Screen style={styles.container}>
+            <Toast
+                message={toastMessage}
+                type={toastType}
+                onDismiss={() => setToastMessage(null)}
+            />
             {/* Top Navigation */}
             <View style={styles.header}>
                 <View style={styles.headerLeft}>
+                    <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
+                        <Ionicons name="menu" size={28} color={colors.primary} />
+                    </TouchableOpacity>
                     <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
                     <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
                 </View>
