@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors['surface-variant'],
   },
-  title: { fontWeight: 'bold', color: colors.primary },
+  title: { fontWeight: 'bold', color: colors.primary, flexShrink: 1 },
   content: { padding: spacing.lg, gap: spacing.md },
   card: {
     flexDirection: 'row',
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors['surface-variant'],
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs },
   primaryBadge: {
     backgroundColor: colors['secondary-container'],
     paddingHorizontal: 8,

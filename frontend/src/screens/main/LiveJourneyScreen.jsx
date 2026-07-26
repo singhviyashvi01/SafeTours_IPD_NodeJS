@@ -12,7 +12,7 @@ import { locationService } from '../../services/locationService';
 import { MapComponent } from '../../components/MapComponent';
 import { dangerZoneService } from '../../services/dangerZoneService';
 import { geofenceManager } from '../../utils/geofenceManager';
-import { useSidebar } from '../../context/SidebarContext';
+
 import { smsService } from '../../services/smsService';
 import { Toast } from '../../components/Toast';
 
@@ -21,7 +21,7 @@ const SAFETY_RESPONSE_SECONDS = 60;
 
 export const LiveJourneyScreen = () => {
     const navigation = useNavigation();
-    const { toggleDrawer } = useSidebar();
+
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(true);
 
     // Toast States
@@ -367,14 +367,12 @@ export const LiveJourneyScreen = () => {
                 <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                     <Ionicons name="arrow-back" size={24} color={colors['on-surface']} />
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.backBtn, { marginLeft: 8 }]} onPress={toggleDrawer} accessibilityLabel="Open menu">
-                    <Ionicons name="menu" size={24} color={colors.primary} />
-                </TouchableOpacity>
+
                 <View style={styles.destinationBox}>
                     <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>
                         {activeJourney ? "Active Journey To" : "Destination"}
                     </Text>
-                    <Text variant="headlineSm" style={{ fontWeight: 'bold' }}>
+                    <Text variant="headlineSm" style={{ fontWeight: 'bold' }} numberOfLines={1}>
                                 {activeJourney ? `${activeJourney.destination?.coordinates?.[1] ?? '—'}, ${activeJourney.destination?.coordinates?.[0] ?? '—'}` : "No Active Journey"}
                     </Text>
                 </View>

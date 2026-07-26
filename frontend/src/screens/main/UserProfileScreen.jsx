@@ -6,11 +6,11 @@ import { Text } from '../../components/Text';
 import { DataState } from '../../components/DataState';
 import { profileService } from '../../services/profile';
 import { formatApiError } from '../../services/apiClient';
-import { useSidebar } from '../../context/SidebarContext';
+
 import { colors, spacing, shapes } from '../../theme/theme';
 
 export const UserProfileScreen = ({ navigation }) => {
-  const { toggleDrawer } = useSidebar();
+
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -48,9 +48,7 @@ export const UserProfileScreen = ({ navigation }) => {
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
-            <Ionicons name="menu" size={26} color={colors.primary} />
-          </TouchableOpacity>
+
           <Text variant="headlineMd" style={styles.title}>Profile</Text>
         </View>
         <TouchableOpacity onPress={() => navigation.navigate('EditProfile')}>

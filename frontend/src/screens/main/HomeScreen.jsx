@@ -217,11 +217,13 @@ const styles = StyleSheet.create({
     headerTitle: {
         color: colors.primary,
         fontWeight: 'bold',
+        flexShrink: 1,
     },
     headerRight: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.md,
+        gap: spacing.sm,
+        flexShrink: 0,
     },
     onlineBadge: {
         flexDirection: 'row',
@@ -373,7 +375,9 @@ const styles = StyleSheet.create({
     },
     actionGrid: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        justifyContent: 'space-around',
+        gap: spacing.md,
     },
     actionBtn: {
         alignItems: 'center',

@@ -180,6 +180,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         color: colors.primary,
         fontWeight: 'bold',
+        flexShrink: 1,
     },
     searchSection: {
         padding: spacing.lg,

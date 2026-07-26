@@ -126,63 +126,70 @@ export const ContactFormScreen = ({ navigation, route }) => {
         <View style={{ width: 24 }} />
       </View>
 
-      <View style={styles.content}>
-        <Field
-          label="Full name"
-          value={form.name}
-          onChangeText={name => setForm({ ...form, name })}
-          error={fieldErrors.name}
-          editable={!saving}
-        />
-        <Field
-          label="Relationship"
-          value={form.relationship}
-          placeholder="e.g. Parent, Spouse, Friend"
-          onChangeText={relationship => setForm({ ...form, relationship })}
-          error={fieldErrors.relationship}
-          editable={!saving}
-        />
-        <Field
-          label="Phone number"
-          value={form.phone}
-          placeholder="+1234567890"
-          keyboardType="phone-pad"
-          onChangeText={phone => setForm({ ...form, phone })}
-          error={fieldErrors.phone}
-          editable={!saving}
-        />
-        <Field
-          label="Email (optional)"
-          value={form.email}
-          placeholder="contact@example.com"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          onChangeText={email => setForm({ ...form, email })}
-          error={fieldErrors.email}
-          editable={!saving}
-        />
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.content}>
+            <Field
+              label="Full name"
+              value={form.name}
+              onChangeText={name => setForm({ ...form, name })}
+              error={fieldErrors.name}
+              editable={!saving}
+            />
+            <Field
+              label="Relationship"
+              value={form.relationship}
+              placeholder="e.g. Parent, Spouse, Friend"
+              onChangeText={relationship => setForm({ ...form, relationship })}
+              error={fieldErrors.relationship}
+              editable={!saving}
+            />
+            <Field
+              label="Phone number"
+              value={form.phone}
+              placeholder="+1234567890"
+              keyboardType="phone-pad"
+              onChangeText={phone => setForm({ ...form, phone })}
+              error={fieldErrors.phone}
+              editable={!saving}
+            />
+            <Field
+              label="Email (optional)"
+              value={form.email}
+              placeholder="contact@example.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              onChangeText={email => setForm({ ...form, email })}
+              error={fieldErrors.email}
+              editable={!saving}
+            />
 
-        <View style={styles.toggleRow}>
-          <Text variant="labelLg" style={{ fontWeight: '600' }}>
-            Set as Primary Emergency Contact
-          </Text>
-          <Switch
-            value={form.isPrimary}
-            onValueChange={isPrimary => setForm({ ...form, isPrimary })}
-            trackColor={{ false: colors.outline, true: colors.primary }}
-            disabled={saving}
-          />
-        </View>
-      </View>
+            <View style={styles.toggleRow}>
+              <Text variant="labelLg" style={{ fontWeight: '600', flex: 1 }}>
+                Set as Primary Emergency Contact
+              </Text>
+              <Switch
+                value={form.isPrimary}
+                onValueChange={isPrimary => setForm({ ...form, isPrimary })}
+                trackColor={{ false: colors.outline, true: colors.primary }}
+                disabled={saving}
+              />
+            </View>
+          </View>
 
-      <View style={styles.footer}>
-        <Button
-          title={id ? 'Save Changes' : 'Add Contact'}
-          onPress={save}
-          isLoading={saving}
-          disabled={saving}
-        />
-      </View>
+          <View style={styles.footer}>
+            <Button
+              title={id ? 'Save Changes' : 'Add Contact'}
+              onPress={save}
+              isLoading={saving}
+              disabled={saving}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 };
@@ -209,7 +216,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors['surface-variant'],
   },
-  title: { fontWeight: 'bold', color: colors.primary },
+  title: { fontWeight: 'bold', color: colors.primary, flexShrink: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: 'space-between' },
   content: { padding: spacing.lg, gap: spacing.md },
   fieldContainer: { marginBottom: spacing.xs },
   label: { marginBottom: spacing.xs },

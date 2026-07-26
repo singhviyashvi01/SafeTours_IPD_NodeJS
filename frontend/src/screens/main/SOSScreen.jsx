@@ -523,6 +523,7 @@ const styles = StyleSheet.create({
     headerTitle: {
         color: colors.primary,
         fontWeight: 'bold',
+        flexShrink: 1,
     },
     scrollContent: {
         padding: spacing.lg,
@@ -545,7 +546,7 @@ const styles = StyleSheet.create({
         borderRadius: shapes.roundedMd,
         borderLeftWidth: 4,
         borderLeftColor: colors.error,
-        marginBottom: spacing.xxl,
+        marginBottom: spacing.lg,
     },
     emergencyHeaderText: {
         flex: 1,
@@ -553,13 +554,13 @@ const styles = StyleSheet.create({
     sosButtonContainer: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: spacing.xl,
-        marginBottom: spacing.xxl,
+        paddingVertical: spacing.md,
+        marginBottom: spacing.xl,
     },
     sosButton: {
-        width: 192,
-        height: 192,
-        borderRadius: 96,
+        width: 168,
+        height: 168,
+        borderRadius: 84,
         backgroundColor: colors.error,
         alignItems: 'center',
         justifyContent: 'center',

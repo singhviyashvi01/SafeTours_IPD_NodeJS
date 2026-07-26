@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Switch,
   StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../components/Screen';
@@ -15,7 +17,7 @@ import { DataState } from '../../components/DataState';
 import { Toast } from '../../components/Toast';
 import { medicalService } from '../../services/medical';
 import { formatApiError } from '../../services/apiClient';
-import { useSidebar } from '../../context/SidebarContext';
+
 import { colors, spacing, shapes } from '../../theme/theme';
 
 const fields = [
@@ -34,7 +36,6 @@ const readable = key =>
     .replace(/^./, char => char.toUpperCase());
 
 export const MedicalIdScreen = ({ navigation }) => {
-  const { toggleDrawer } = useSidebar();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,13 +92,11 @@ export const MedicalIdScreen = ({ navigation }) => {
       />
 
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
-            <Ionicons name="menu" size={26} color={colors.primary} />
-          </TouchableOpacity>
+
           <Text variant="headlineMd" style={styles.title}>Medical ID</Text>
         </View>
         <Ionicons name="medkit" size={24} color={colors.primary} />
@@ -106,8 +105,11 @@ export const MedicalIdScreen = ({ navigation }) => {
       {loading || error || !data ? (
         <DataState loading={loading} error={error} onRetry={load} />
       ) : (
-        <>
-          <ScrollView contentContainerStyle={styles.content}>
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }} 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             <Text color={colors['on-surface-variant']}>
               This information can be shared with emergency responders during an SOS event.
             </Text>
@@ -152,7 +154,7 @@ export const MedicalIdScreen = ({ navigation }) => {
               disabled={saving}
             />
           </View>
-        </>
+        </KeyboardAvoidingView>
       )}
     </Screen>
   );
@@ -168,7 +170,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors['surface-variant'],
   },
-  title: { fontWeight: 'bold', color: colors.primary },
+  title: { fontWeight: 'bold', color: colors.primary, flexShrink: 1 },
   content: { padding: spacing.lg, gap: spacing.lg },
   label: { marginBottom: spacing.sm },
   input: {

@@ -18,7 +18,7 @@ import { formatApiError } from '../../services/apiClient';
 import { useAuth } from '../../context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { useSidebar } from '../../context/SidebarContext';
+
 
 const blankMedical = {
   bloodGroup: '',
@@ -42,7 +42,7 @@ const blankSettings = {
 export const ProfileScreen = () => {
   const navigation = useNavigation();
   const { logout, isProfileComplete } = useAuth();
-  const { toggleDrawer } = useSidebar();
+
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -144,9 +144,7 @@ export const ProfileScreen = () => {
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
-            <Ionicons name="menu" size={26} color={colors.primary} />
-          </TouchableOpacity>
+
           <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
         </View>
         <View style={styles.profilePicContainer}>
@@ -273,8 +271,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(217, 194, 183, 0.3)',
   },
-  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  headerTitle: { color: colors.primary, fontWeight: 'bold' },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  headerTitle: { color: colors.primary, fontWeight: 'bold', flexShrink: 1 },
   profilePicContainer: {
     width: 40,
     height: 40,

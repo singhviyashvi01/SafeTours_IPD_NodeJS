@@ -5,11 +5,11 @@ import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { DataState } from '../../components/DataState';
 import { journeyService } from '../../services/journeys';
-import { useSidebar } from '../../context/SidebarContext';
+
 import { colors, spacing, shapes } from '../../theme/theme';
 
 export const JourneyHistoryScreen = ({ navigation }) => {
-  const { toggleDrawer } = useSidebar();
+
   const [items, setItems] = useState(null);
   const [error, setError] = useState('');
 
@@ -31,13 +31,11 @@ export const JourneyHistoryScreen = ({ navigation }) => {
   return (
     <Screen style={styles.container}>
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
-            <Ionicons name="menu" size={26} color={colors.primary} />
-          </TouchableOpacity>
+
           <Text variant="headlineMd" style={styles.title}>Journey History</Text>
         </View>
         <View style={{ width: 24 }} />
@@ -94,6 +92,7 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: 'bold',
     color: colors.primary,
+    flexShrink: 1,
   },
   content: {
     padding: spacing.lg,

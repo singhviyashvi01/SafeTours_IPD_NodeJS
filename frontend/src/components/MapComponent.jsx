@@ -60,6 +60,8 @@ export const MapComponent = forwardRef(({
     communityIncidents = [],
     selectedZone = null,
     onSelectZone,
+    destinationMarker = null,
+    onSelectDestination = null,
     ...props
 }, ref) => {
 
@@ -187,6 +189,25 @@ export const MapComponent = forwardRef(({
                     <View style={styles.markerContainer}>
                         <View style={styles.pulseRing} />
                         <View style={styles.markerDot} />
+                    </View>
+                </Marker>
+            )}
+
+            {/* Destination Marker */}
+            {destinationMarker && destinationMarker.latitude && destinationMarker.longitude && (
+                <Marker
+                    coordinate={{
+                        latitude: destinationMarker.latitude,
+                        longitude: destinationMarker.longitude,
+                    }}
+                    title={destinationMarker.name || 'Searched Destination'}
+                    description="Tap marker or 'View Details' to inspect safety metrics"
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    onPress={() => onSelectDestination && onSelectDestination(destinationMarker)}
+                >
+                    <View style={styles.markerContainer}>
+                        <View style={[styles.pulseRing, { backgroundColor: '#e11d48', opacity: 0.3 }]} />
+                        <View style={[styles.markerDot, { backgroundColor: '#e11d48', borderColor: '#ffffff' }]} />
                     </View>
                 </Marker>
             )}

@@ -32,6 +32,19 @@ export const SafetyMapScreen = ({ route }) => {
     const navigation = useNavigation();
     const { toggleDrawer } = useSidebar();
     const [searchQuery, setSearchQuery] = useState('');
+
+    // ── Destination Search States ──────────────────────────────────────────────
+    const [isSearchFocused, setIsSearchFocused] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
+    const [searchError, setSearchError] = useState(null);
+    const [suggestions, setSuggestions] = useState([]);
+    const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
+    const [destination, setDestination] = useState(null); // { latitude, longitude, name, address }
+    const [destinationRisk, setDestinationRisk] = useState(null); // nearby danger zones for destination
+    const [destinationDistance, setDestinationDistance] = useState(null); // meters from user
+    const [showDestinationPanel, setShowDestinationPanel] = useState(false);
+    const autocompleteTimerRef = useRef(null);
+    // ─────────────────────────────────────────────────────────────────────────
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
     
     // Map & Location states
@@ -77,6 +90,217 @@ export const SafetyMapScreen = ({ route }) => {
     const automaticSosZoneId = useRef(null);
     const dangerZonesRef = useRef([]);
     const autoSosEnabledRef = useRef(false);
+    const autocompleteTimerRef2 = autocompleteTimerRef; // alias for clarity in cleanup
+
+    // ── Destination Search Handlers ────────────────────────────────────────────
+
+    /**
+     * Debounced autocomplete: fires geocode suggestions ~500ms after user stops typing.
+     * Uses expo-location geocodeAsync which is available without an extra API key.
+     */
+    const handleSearchTextChange = (text) => {
+        setSearchQuery(text);
+        setSearchError(null);
+
+        // Clear destination when user edits the query
+        if (destination) {
+            setDestination(null);
+            setDestinationRisk(null);
+            setDestinationDistance(null);
+            setShowDestinationPanel(false);
+        }
+
+        if (autocompleteTimerRef.current) {
+            clearTimeout(autocompleteTimerRef.current);
+        }
+
+        if (!text || text.trim().length < 2) {
+            setSuggestions([]);
+            return;
+        }
+
+        setIsSuggestionsLoading(true);
+        autocompleteTimerRef.current = setTimeout(async () => {
+            try {
+                const results = await Location.geocodeAsync(text.trim());
+                if (results && results.length > 0) {
+                    // Reverse-geocode each candidate to get a readable address
+                    const enriched = await Promise.all(
+                        results.slice(0, 5).map(async (r) => {
+                            try {
+                                const [place] = await Location.reverseGeocodeAsync({
+                                    latitude: r.latitude,
+                                    longitude: r.longitude,
+                                });
+                                const name = place
+                                    ? [place.name, place.district, place.city, place.region, place.country]
+                                          .filter(Boolean)
+                                          .join(', ')
+                                    : `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}`;
+                                return { latitude: r.latitude, longitude: r.longitude, name };
+                            } catch {
+                                return {
+                                    latitude: r.latitude,
+                                    longitude: r.longitude,
+                                    name: `${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}`,
+                                };
+                            }
+                        })
+                    );
+                    // Deduplicate by rounded coordinate
+                    const seen = new Set();
+                    const unique = enriched.filter((s) => {
+                        const key = `${s.latitude.toFixed(4)}_${s.longitude.toFixed(4)}`;
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    });
+                    setSuggestions(unique);
+                } else {
+                    setSuggestions([]);
+                }
+            } catch (err) {
+                console.warn('[Autocomplete] geocode error:', err);
+                setSuggestions([]);
+            } finally {
+                setIsSuggestionsLoading(false);
+            }
+        }, 500);
+    };
+
+    /**
+     * Called when user taps a suggestion or submits the search bar.
+     * Geocodes the query, moves the camera, places a destination marker,
+     * and fetches nearby danger zones + risk info for that location.
+     */
+    const handleSearchDestination = async (overrideQuery = null) => {
+        const query = (overrideQuery || searchQuery).trim();
+        if (!query) return;
+
+        // Dismiss suggestions & keyboard
+        setSuggestions([]);
+        setIsSearchFocused(false);
+        setIsSearching(true);
+        setSearchError(null);
+        setShowDestinationPanel(false);
+
+        try {
+            const results = await Location.geocodeAsync(query);
+            if (!results || results.length === 0) {
+                setSearchError(`No location found for "${query}". Please try a different search.`);
+                setIsSearching(false);
+                return;
+            }
+
+            const { latitude, longitude } = results[0];
+
+            // Reverse-geocode for display
+            let placeName = query;
+            let fullAddress = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            try {
+                const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+                if (place) {
+                    placeName = place.name || place.district || place.city || query;
+                    fullAddress = [
+                        place.streetNumber,
+                        place.street,
+                        place.district,
+                        place.city,
+                        place.region,
+                        place.postalCode,
+                        place.country,
+                    ]
+                        .filter(Boolean)
+                        .join(', ');
+                }
+            } catch {}
+
+            const dest = { latitude, longitude, name: placeName, address: fullAddress };
+            setDestination(dest);
+            setSearchQuery(placeName);
+
+            // Animate camera to destination
+            const destRegion = {
+                latitude,
+                longitude,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+            };
+            setMapRegion(destRegion);
+            mapRef.current?.animateToRegion(destRegion, 1000);
+
+            // Distance from user's current location
+            if (userLocation) {
+                const dist = calculateDistanceMeters(
+                    userLocation.latitude,
+                    userLocation.longitude,
+                    latitude,
+                    longitude
+                );
+                setDestinationDistance(dist);
+            }
+
+            // Fetch nearby danger zones for the destination
+            const riskRes = await dangerZoneService.getNearbyDangerZones(latitude, longitude, 3000);
+            if (riskRes.success) {
+                setDestinationRisk(riskRes.data || []);
+            } else {
+                setDestinationRisk([]);
+            }
+
+            // Do not show location details automatically upon search.
+            // Display them only when the user taps the marker or selects "View Details".
+            setShowDestinationPanel(false);
+        } catch (err) {
+            console.error('[Destination Search] Error:', err);
+            setSearchError('An error occurred while searching. Please try again.');
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    /**
+     * Triggered when user taps destination marker or "View Details" chip
+     */
+    const handleOpenDestinationDetails = () => {
+        setShowDestinationPanel(true);
+        setBottomSheetExpanded(true);
+    };
+
+    /**
+     * Tap a suggestion chip → set query and immediately geocode
+     */
+    const handleSelectSuggestion = (suggestion) => {
+        setSearchQuery(suggestion.name);
+        setSuggestions([]);
+        setIsSearchFocused(false);
+        handleSearchDestination(suggestion.name);
+    };
+
+    /**
+     * Clear the destination and reset search state
+     */
+    const handleClearDestination = () => {
+        setDestination(null);
+        setDestinationRisk(null);
+        setDestinationDistance(null);
+        setShowDestinationPanel(false);
+        setSearchQuery('');
+        setSuggestions([]);
+        setSearchError(null);
+        // Restore camera to user location if available
+        if (userLocation) {
+            const userRegion = {
+                ...userLocation,
+                latitudeDelta: 0.02,
+                longitudeDelta: 0.02,
+            };
+            setMapRegion(userRegion);
+            mapRef.current?.animateToRegion(userRegion, 800);
+        }
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     const loadCommunityIncidents = async (coordinates = null) => {
         setIsLoadingCommunity(true);
@@ -489,6 +713,23 @@ export const SafetyMapScreen = ({ route }) => {
     // connected later without adding a new API or changing this layout.
     const locationChatGroups = [{ location: locationChatName, preview: 'Local chat will appear here when community chat data is available.' }];
 
+    // Destination Risk Assessment Helper
+    const destinationRiskInfo = (() => {
+        if (!destinationRisk || destinationRisk.length === 0) {
+            return { level: 'SAFE', label: 'Safe Area', colors: getRiskColors('SAFE', 0), count: 0 };
+        }
+        let maxScore = 0;
+        let maxLevel = 'LOW';
+        destinationRisk.forEach(z => {
+            const score = z.totalRiskScore ?? z.crimeScore ?? 0;
+            if (score > maxScore) maxScore = score;
+            const lvl = (z.riskLevel || '').toUpperCase();
+            if (lvl === 'HIGH' || lvl === 'EXTREME') maxLevel = 'HIGH';
+            else if ((lvl === 'MODERATE' || lvl === 'MEDIUM') && maxLevel !== 'HIGH') maxLevel = 'MODERATE';
+        });
+        return { level: maxLevel, label: `${maxLevel} RISK`, colors: getRiskColors(maxLevel, maxScore), count: destinationRisk.length };
+    })();
+
     return (
         <Screen style={styles.container} isSafe={false}>
             {/* Map Component */}
@@ -497,6 +738,8 @@ export const SafetyMapScreen = ({ route }) => {
                 region={mapRegion}
                 onRegionChangeComplete={(region) => setMapRegion(region)}
                 userLocation={userLocation}
+                destinationMarker={destination}
+                onSelectDestination={handleOpenDestinationDetails}
                 mapType={mapType}
                 dangerZones={filteredDangerZones}
                 communityIncidents={communityIncidents}
@@ -514,22 +757,80 @@ export const SafetyMapScreen = ({ route }) => {
                         <Ionicons name="search" size={20} color={colors['on-surface-variant']} />
                         <TextInput 
                             style={styles.searchInput}
-                            placeholder="Search zones by ID, risk, or crime..."
+                            placeholder="Search destination, address, or zones..."
                             placeholderTextColor={colors['on-surface-variant']}
                             value={searchQuery}
-                            onChangeText={setSearchQuery}
+                            onChangeText={handleSearchTextChange}
+                            onFocus={() => setIsSearchFocused(true)}
+                            onSubmitEditing={() => handleSearchDestination()}
+                            returnKeyType="search"
                         />
-                        {searchQuery ? (
-                            <TouchableOpacity style={styles.micButton} onPress={() => setSearchQuery('')}>
+                        {isSearching ? (
+                            <ActivityIndicator size="small" color={colors.primary} style={{ padding: spacing.xs }} />
+                        ) : searchQuery ? (
+                            <TouchableOpacity style={styles.micButton} onPress={handleClearDestination}>
                                 <Ionicons name="close-circle" size={20} color={colors.outline} />
                             </TouchableOpacity>
                         ) : (
-                            <TouchableOpacity style={styles.micButton}>
-                                <Ionicons name="mic" size={20} color={colors.primary} />
+                            <TouchableOpacity style={styles.micButton} onPress={() => handleSearchDestination()}>
+                                <Ionicons name="arrow-forward-circle" size={22} color={colors.primary} />
                             </TouchableOpacity>
                         )}
                     </View>
                 </View>
+
+                {/* Floating Searched Location Chip with "View Details" action */}
+                {destination && !showDestinationPanel && (
+                    <TouchableOpacity style={styles.destinationMarkerChip} onPress={handleOpenDestinationDetails}>
+                        <Ionicons name="location-sharp" size={18} color="#e11d48" />
+                        <Text variant="labelLg" style={{ flex: 1, fontWeight: 'bold' }} numberOfLines={1}>
+                            {destination.name}
+                        </Text>
+                        <View style={styles.viewDetailsBtnChip}>
+                            <Text variant="labelMd" style={{ color: colors.white, fontWeight: 'bold' }}>View Details</Text>
+                        </View>
+                    </TouchableOpacity>
+                )}
+
+                {/* Autocomplete Suggestions Dropdown */}
+                {isSearchFocused && (suggestions.length > 0 || isSuggestionsLoading) && (
+                    <View style={styles.autocompleteDropdown}>
+                        {isSuggestionsLoading ? (
+                            <View style={styles.autocompleteItem}>
+                                <ActivityIndicator size="small" color={colors.primary} />
+                                <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginLeft: 10 }}>
+                                    Finding locations...
+                                </Text>
+                            </View>
+                        ) : (
+                            suggestions.map((item, idx) => (
+                                <TouchableOpacity
+                                    key={`${item.latitude}_${item.longitude}_${idx}`}
+                                    style={styles.autocompleteItem}
+                                    onPress={() => handleSelectSuggestion(item)}
+                                >
+                                    <Ionicons name="location-outline" size={18} color={colors.primary} />
+                                    <Text variant="bodyMd" style={{ flex: 1, color: colors['on-surface'] }} numberOfLines={1}>
+                                        {item.name}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))
+                        )}
+                    </View>
+                )}
+
+                {/* Search Error Banner */}
+                {searchError && (
+                    <View style={styles.searchErrorBanner}>
+                        <Ionicons name="alert-circle" size={18} color={colors.error} />
+                        <Text variant="bodyMd" style={{ color: colors.error, flex: 1 }}>
+                            {searchError}
+                        </Text>
+                        <TouchableOpacity onPress={() => setSearchError(null)}>
+                            <Ionicons name="close" size={16} color={colors.error} />
+                        </TouchableOpacity>
+                    </View>
+                )}
 
                 {/* Connection, Live Tracking & Diagnostics Trigger Status Row */}
                 <View style={styles.statusRow}>
@@ -671,6 +972,115 @@ export const SafetyMapScreen = ({ route }) => {
                 >
                     <View style={styles.sheetHandle} />
                 </TouchableOpacity>
+
+                {/* Destination Details Card (Shown when a destination is searched) */}
+                {destination && showDestinationPanel && (
+                    <View style={styles.destinationCard}>
+                        {/* Fixed header with place name and close button */}
+                        <View style={styles.destinationCardHeader}>
+                            <View style={{ flex: 1, paddingRight: 8 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                                    <Ionicons name="location-sharp" size={16} color="#e11d48" />
+                                    <Text variant="labelMd" color={colors.primary} style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
+                                        Searched Destination
+                                    </Text>
+                                </View>
+                                <Text variant="headlineSm" style={{ fontWeight: 'bold' }} numberOfLines={1}>
+                                    {destination.name}
+                                </Text>
+                            </View>
+                            <TouchableOpacity style={styles.clearDestBtn} onPress={handleClearDestination}>
+                                <Ionicons name="close-circle" size={24} color={colors.outline} />
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* Scrollable body so content never overflows the screen */}
+                        <ScrollView
+                            style={styles.destinationCardBody}
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                        >
+                            {/* Address & Coords */}
+                            {destination.address ? (
+                                <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginBottom: 2 }} numberOfLines={2}>
+                                    {destination.address}
+                                </Text>
+                            ) : null}
+                            <Text variant="labelSm" color={colors.outline} style={{ marginBottom: spacing.sm }}>
+                                {destination.latitude.toFixed(5)}, {destination.longitude.toFixed(5)}
+                            </Text>
+
+                            {/* Risk & Distance Grid */}
+                            <View style={[styles.statsGrid, { marginTop: 0 }]}>
+                                <View style={[styles.statCard, { borderColor: destinationRiskInfo.colors.stroke }]}>
+                                    <View style={[styles.statIconContainer, { backgroundColor: destinationRiskInfo.colors.fill }]}>
+                                        <Ionicons name="shield-half-outline" size={20} color={destinationRiskInfo.colors.stroke} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Risk Level</Text>
+                                        <Text variant="labelLg" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
+                                            {destinationRiskInfo.label}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <View style={styles.statCard}>
+                                    <View style={styles.statIconContainer}>
+                                        <Ionicons name="navigate" size={20} color={colors.primary} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Distance</Text>
+                                        <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                            {destinationDistance !== null
+                                                ? (destinationDistance >= 1000
+                                                    ? `${(destinationDistance / 1000).toFixed(2)} km`
+                                                    : `${Math.round(destinationDistance)} m`)
+                                                : 'N/A'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+
+                            {/* Nearby Danger Zones */}
+                            <View style={[styles.detailsContainer, { marginTop: spacing.sm }]}>
+                                <View style={styles.detailRow}>
+                                    <Ionicons name="alert-circle-outline" size={15} color={colors['on-surface-variant']} />
+                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Nearby Danger Zones:</Text>
+                                    <Text variant="labelMd" style={{ fontWeight: 'bold', color: destinationRiskInfo.count > 0 ? colors.error : 'green' }}>
+                                        {destinationRiskInfo.count > 0 ? `${destinationRiskInfo.count} within 3km` : 'None detected'}
+                                    </Text>
+                                </View>
+                                {destinationRisk && destinationRisk.length > 0 && (
+                                    <View style={{ marginTop: 4 }}>
+                                        {destinationRisk.slice(0, 2).map((z, i) => (
+                                            <Text key={i} variant="labelMd" color={colors['on-surface-variant']} style={{ marginLeft: 20 }} numberOfLines={1}>
+                                                • Hotspot #{z.hotspotId || i+1}: {z.riskLevel || 'High'} risk
+                                            </Text>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+
+                            {/* Action Buttons */}
+                            <View style={[styles.actionButtonsRow, { marginTop: spacing.sm }]}>
+                                <TouchableOpacity 
+                                    style={styles.routeBtn} 
+                                    onPress={() => navigation.navigate('LiveJourney', { destination })}
+                                >
+                                    <Ionicons name="navigate-circle-outline" size={20} color={colors['on-primary']} />
+                                    <Text variant="labelLg" color={colors['on-primary']} style={{ fontWeight: 'bold' }}>
+                                        Route Here
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity style={styles.shareBtn} onPress={handleClearDestination}>
+                                    <Ionicons name="close-circle-outline" size={18} color={colors.primary} />
+                                    <Text variant="labelLg" color={colors.primary}>Clear</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+                    </View>
+                )}
 
                 {/* Danger Zone Fetch Error Banner */}
                 {dangerZoneError && (
@@ -1348,5 +1758,85 @@ const styles = StyleSheet.create({
         paddingVertical: 6,
         borderRadius: shapes.roundedPill,
         backgroundColor: colors['surface-container'],
+    },
+    // Autocomplete & Destination Search Styles
+    autocompleteDropdown: {
+        backgroundColor: colors.surface,
+        borderRadius: shapes.roundedLg,
+        marginTop: spacing.xs,
+        paddingVertical: spacing.xs,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+        elevation: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.3)',
+        maxHeight: 220,
+    },
+    autocompleteItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.md,
+        paddingVertical: 10,
+        borderBottomWidth: 0.5,
+        borderBottomColor: 'rgba(217, 194, 183, 0.2)',
+        gap: spacing.sm,
+    },
+    searchErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: '#fee2e2',
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        borderRadius: shapes.roundedPill,
+        marginTop: spacing.xs,
+        borderWidth: 1,
+        borderColor: '#fca5a5',
+    },
+    destinationCard: {
+        backgroundColor: colors['surface-container-low'],
+        borderRadius: shapes.roundedLg,
+        padding: spacing.md,
+        marginBottom: spacing.md,
+        borderWidth: 1.5,
+        borderColor: colors.primary,
+        maxHeight: height * 0.42,
+    },
+    destinationCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: spacing.xs,
+    },
+    destinationCardBody: {
+        flexShrink: 1,
+    },
+    clearDestBtn: {
+        padding: 4,
+    },
+    destinationMarkerChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.surface,
+        paddingHorizontal: spacing.md,
+        paddingVertical: 8,
+        borderRadius: shapes.roundedPill,
+        marginTop: spacing.xs,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 5,
+        borderWidth: 1,
+        borderColor: 'rgba(225, 29, 72, 0.4)',
+    },
+    viewDetailsBtnChip: {
+        backgroundColor: colors.primary,
+        paddingHorizontal: 12,
+        paddingVertical: 4,
+        borderRadius: shapes.roundedPill,
     },
 });

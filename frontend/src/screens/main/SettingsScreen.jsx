@@ -244,6 +244,7 @@ const styles = StyleSheet.create({
     },
     rowText: {
         flex: 1,
+        paddingRight: 4,
     },
     rightElement: {
         marginLeft: spacing.sm,

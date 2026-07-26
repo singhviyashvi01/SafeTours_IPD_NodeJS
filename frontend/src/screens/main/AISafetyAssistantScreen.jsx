@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
@@ -146,21 +146,23 @@ export const AISafetyAssistantScreen = () => {
             </ScrollView>
 
             {/* Bottom Input Area */}
-            <View style={styles.bottomInputContainer}>
-                <View style={styles.inputWrapper}>
-                    <TouchableOpacity style={styles.micBtn}>
-                        <Ionicons name="mic" size={20} color={colors.primary} />
-                    </TouchableOpacity>
-                    <TextInput 
-                        style={styles.chatInput}
-                        placeholder="Ask about safety, weather, or routes..."
-                        placeholderTextColor="rgba(134, 115, 106, 0.5)"
-                    />
-                    <TouchableOpacity style={styles.sendBtn}>
-                        <Ionicons name="send" size={18} color={colors.white} />
-                    </TouchableOpacity>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+                <View style={styles.bottomInputContainer}>
+                    <View style={styles.inputWrapper}>
+                        <TouchableOpacity style={styles.micBtn}>
+                            <Ionicons name="mic" size={20} color={colors.primary} />
+                        </TouchableOpacity>
+                        <TextInput 
+                            style={styles.chatInput}
+                            placeholder="Ask about safety, weather, or routes..."
+                            placeholderTextColor="rgba(134, 115, 106, 0.5)"
+                        />
+                        <TouchableOpacity style={styles.sendBtn}>
+                            <Ionicons name="send" size={18} color={colors.white} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </View>
+            </KeyboardAvoidingView>
         </Screen>
     );
 };
@@ -232,7 +234,8 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
     },
     suggestionBtn: {
-        width: '48%',
+        flex: 1,
+        minWidth: '45%',
         flexDirection: 'row',
         alignItems: 'center',
         gap: spacing.sm,
@@ -269,6 +272,7 @@ const styles = StyleSheet.create({
     },
     contextChipsRow: {
         flexDirection: 'row',
+        flexWrap: 'wrap',
         gap: spacing.sm,
         marginBottom: spacing.xs,
     },

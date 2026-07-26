@@ -73,11 +73,11 @@ export const NotificationsScreen = ({ navigation }) => {
     <Screen style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 }}>
           <TouchableOpacity onPress={toggleDrawer} accessibilityLabel="Open menu">
             <Ionicons name="menu" size={28} color={colors.primary} />
           </TouchableOpacity>
-          <Text variant="headlineMd" style={{ fontWeight: 'bold', color: colors.primary }}>
+          <Text variant="headlineMd" style={{ fontWeight: 'bold', color: colors.primary, flexShrink: 1 }}>
             History & Alerts
           </Text>
         </View>
