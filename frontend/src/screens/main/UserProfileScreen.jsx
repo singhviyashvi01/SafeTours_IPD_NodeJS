@@ -73,7 +73,15 @@ export const UserProfileScreen = ({ navigation }) => {
           ) : null}
 
           <Row icon="call" title="Phone" value={profile.phone || 'Add phone number'} />
-          <Row icon="location" title="Address" value={profile.address || 'Add address'} />
+          <Row
+            icon="location"
+            title="Address"
+            value={
+              typeof profile.address === 'object' && profile.address !== null
+                ? profile.address.street || profile.address.city || 'Add address'
+                : profile.address || 'Add address'
+            }
+          />
           <Row icon="globe" title="Nationality" value={profile.nationality || 'Add nationality'} />
           <Row
             icon="language"

@@ -55,8 +55,9 @@ export const SOSHistoryScreen = ({ navigation }) => {
             const timeFormatted = dateStr ? new Date(dateStr).toLocaleString() : 'Recent';
             
             let coordsStr = 'Location Captured';
-            if (item.location && Array.isArray(item.location.coordinates)) {
-              coordsStr = `${item.location.coordinates[1].toFixed(4)}° N, ${item.location.coordinates[0].toFixed(4)}° E`;
+            const coords = item.location?.location?.coordinates || item.location?.coordinates;
+            if (Array.isArray(coords) && coords.length >= 2) {
+              coordsStr = `${Number(coords[1]).toFixed(4)}° N, ${Number(coords[0]).toFixed(4)}° E`;
             }
 
             return (

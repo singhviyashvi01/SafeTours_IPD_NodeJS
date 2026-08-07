@@ -137,15 +137,17 @@ export const SOSScreen = () => {
             latitude: currentCoordinates.latitude,
             longitude: currentCoordinates.longitude,
             accuracy: 10,
+            timestamp: new Date().toISOString(),
         });
 
-        if (syncRes.success && syncRes.data?._id) {
-            locationId = syncRes.data._id;
+        const syncedLoc = syncRes.data?.data || syncRes.data;
+        if (syncRes.success && (syncedLoc?._id || syncedLoc?.id)) {
+            locationId = syncedLoc._id || syncedLoc.id;
         } else {
             // Fallback: Fetch latest location from locationService
             const latestRes = await locationService.getLatestLocation();
-            if (latestRes.success && latestRes.location?._id) {
-                locationId = latestRes.location._id;
+            if (latestRes.success && latestRes.location) {
+                locationId = latestRes.location._id || latestRes.location.id;
             }
         }
 
@@ -153,8 +155,8 @@ export const SOSScreen = () => {
         let journeyId = null;
         try {
             const journeyRes = await journeyService.getActive();
-            if (journeyRes.success && journeyRes.journey?._id) {
-                journeyId = journeyRes.journey._id;
+            if (journeyRes.success && journeyRes.journey) {
+                journeyId = journeyRes.journey._id || journeyRes.journey.id || null;
             }
         } catch (err) {
             console.warn('Could not fetch active journey for SOS:', err);

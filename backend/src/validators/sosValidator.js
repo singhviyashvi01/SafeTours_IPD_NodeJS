@@ -18,12 +18,12 @@ const validateManualSOS = [
     .custom(isValidObjectId),
 
   body('journeyId')
-    .optional({ nullable: true })
+    .optional({ checkFalsy: true, nullable: true })
     .isString().withMessage('journeyId must be a string.')
     .custom(isValidObjectId),
 
   body('reason')
-    .optional()
+    .optional({ checkFalsy: true, nullable: true })
     .isString().withMessage('reason must be a string.')
     .trim()
     .isLength({ max: 500 }).withMessage('reason must not exceed 500 characters.'),
@@ -42,7 +42,7 @@ const validateAutomaticSOS = [
     .custom(isValidObjectId),
 
   body('reason')
-    .optional()
+    .optional({ checkFalsy: true, nullable: true })
     .isString().withMessage('reason must be a string.')
     .trim()
     .isLength({ max: 500 }).withMessage('reason must not exceed 500 characters.'),
@@ -56,7 +56,7 @@ const validateCancelSOS = [
     .custom(isValidObjectId),
 
   body('reason')
-    .optional()
+    .optional({ checkFalsy: true, nullable: true })
     .isString().withMessage('reason must be a string.')
     .trim()
     .isLength({ max: 500 }).withMessage('reason must not exceed 500 characters.'),
