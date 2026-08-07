@@ -1,0 +1,6 @@
+﻿.env
+__pycache__/
+*.pyc
+.venv/
+*.db
+hex_scores_enriched.backup.json
