@@ -306,7 +306,7 @@ class DangerZoneService {
    * @param {string} h3Index - H3 index string for the coordinate
    * @returns {Promise<Object|null>} Updated DangerZone document or null if no zone found.
    */
-  async updateCrowdScore(latitude, longitude, crowdScore, h3Index) {
+  async updateCrowdScore(latitude, longitude, crowdScore, h3Index, crowdCount = 0) {
     try {
       const nearestZone = await this.getNearestDangerZone(latitude, longitude);
       if (!nearestZone) {
@@ -314,14 +314,12 @@ class DangerZoneService {
         return null;
       }
 
-      // Calculate composite risk via centralized Risk Engine using all existing sub-scores
-      const riskResult = riskEngineService.calculateRisk({
-        crimeScore: nearestZone.crimeScore || 0,
-        weatherScore: nearestZone.weatherScore || 0,
-        newsScore: nearestZone.newsScore || 0,
-        crowdScore: Number(crowdScore),
-        communityScore: nearestZone.communityScore || 0,
-        ewsScore: nearestZone.ewsScore || 0,
+      // Calculate composite risk via Python Risk Engine
+      const riskResult = await riskEngineService.calculateRisk({
+        lat: latitude,
+        lng: longitude,
+        crowdCount: crowdCount,
+        communityReports: [],
       });
 
       // Atomic $set: updates crowdScore, h3Index, totalRiskScore, riskLevel, and updatedAt.
@@ -330,7 +328,7 @@ class DangerZoneService {
         nearestZone._id,
         {
           $set: {
-            crowdScore: Number(crowdScore),
+            crowdScore: Number(crowdScore), // Legacy score, keep for schema
             totalRiskScore: riskResult.totalRiskScore,
             riskLevel: riskResult.level,
             ...(h3Index && { h3Index }),
@@ -382,13 +380,11 @@ class DangerZoneService {
         // Build per-zone risk calculations and updateMany using a shared environmental update
         // For multi-zone updateMany: use a representative zone's scores as baseline
         const representativeZone = existingMatchingZones[0];
-        const riskResult = riskEngineService.calculateRisk({
-          crimeScore: representativeZone.crimeScore || 0,
-          weatherScore: Number(weatherScore),
-          newsScore: representativeZone.newsScore || 0,
-          crowdScore: representativeZone.crowdScore || 0,
-          communityScore: representativeZone.communityScore || 0,
-          ewsScore: representativeZone.ewsScore || 0,
+        const riskResult = await riskEngineService.calculateRisk({
+          lat: latitude,
+          lng: longitude,
+          crowdCount: 0,
+          communityReports: [],
         });
 
         await DangerZone.updateMany(filter, {
@@ -416,13 +412,11 @@ class DangerZoneService {
         return [];
       }
 
-      const riskResult = riskEngineService.calculateRisk({
-        crimeScore: nearestZone.crimeScore || 0,
-        weatherScore: Number(weatherScore),
-        newsScore: nearestZone.newsScore || 0,
-        crowdScore: nearestZone.crowdScore || 0,
-        communityScore: nearestZone.communityScore || 0,
-        ewsScore: nearestZone.ewsScore || 0,
+      const riskResult = await riskEngineService.calculateRisk({
+        lat: latitude,
+        lng: longitude,
+        crowdCount: 0,
+        communityReports: [],
       });
 
       const updatedZone = await DangerZone.findByIdAndUpdate(

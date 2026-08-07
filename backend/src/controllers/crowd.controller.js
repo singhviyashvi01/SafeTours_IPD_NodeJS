@@ -92,7 +92,8 @@ const getCrowdScore = async (req, res, next) => {
       latitude,
       longitude,
       crowdData.crowdScore,
-      h3Index
+      h3Index,
+      places.length
     );
 
     await riskEngine.updateGridCellScores(

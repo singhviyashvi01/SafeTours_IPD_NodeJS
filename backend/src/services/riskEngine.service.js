@@ -1,17 +1,19 @@
-const { RISK_WEIGHTS, RISK_LEVELS, RISK_THRESHOLDS } = require('../config/riskWeights.config');
+const axios = require('axios');
 const logger = require('../utils/logger');
+const { normalizeNumeric } = require('../utils/normalizeData');
+const { RISK_LEVELS, RISK_THRESHOLDS } = require('../config/riskWeights.config');
 
 /**
  * RiskEngineService — SafeTours IPD
  *
  * Purpose of this service:
- * Serves as the single centralized Risk Score Engine across the entire backend.
- * Calculates composite normalized risk scores (0–100) and maps them to standard
- * risk levels (SAFE, LOW, MODERATE, HIGH, EXTREME) using configurable domain weights.
+ * Forwards necessary data to the Python score-service which acts as the
+ * single centralized Risk Score Engine.
  */
 class RiskEngineService {
   /**
    * Helper method to map a numeric score (0-100) to a standard risk level.
+   * Retained for backward compatibility if needed by tests or other modules.
    *
    * @param {number} score - Normalized risk score (0-100)
    * @returns {string} Standard risk level ('SAFE'|'LOW'|'MODERATE'|'HIGH'|'EXTREME')
@@ -28,93 +30,59 @@ class RiskEngineService {
   }
 
   /**
-   * Clamps a score value to range [0, 100] and converts invalid inputs to 0.
+   * Main calculation function that delegates to the Python score-service.
    *
-   * @param {any} val - Input score
-   * @returns {number} Clamped number between 0 and 100
+   * @param {Object} data
+   * @param {number} data.lat
+   * @param {number} data.lng
+   * @param {number} [data.crowdCount=0]
+   * @param {Array} [data.communityReports=[]]
+   * @param {boolean} [data.solo=false]
+   * @returns {Promise<{ totalRiskScore: number, level: string, breakdown: Object }>}
    */
-  clampScore(val) {
-    const num = Number(val);
-    if (!Number.isFinite(num) || num < 0) return 0;
-    if (num > 100) return 100;
-    return num;
-  }
+  async calculateRisk({ lat, lng, crowdCount = 0, communityReports = [], solo = false }) {
+    try {
+      // Node.js collects the data. Missing numeric values become 0.
+      const payload = {
+        lat: normalizeNumeric(lat),
+        lng: normalizeNumeric(lng),
+        crowd_count: normalizeNumeric(crowdCount),
+        community_reports: communityReports,
+        solo: Boolean(solo)
+      };
 
-  /**
-   * Main calculation function for the Risk Score Engine.
-   * Collects all component scores, applies configurable domain weights,
-   * normalizes the total to a 0–100 scale, and assigns a standardized risk level.
-   *
-   * @param {Object} scores
-   * @param {number} [scores.crimeScore=0]     - Crime risk score (0-100)
-   * @param {number} [scores.weatherScore=0]   - Weather risk score (0-100)
-   * @param {number} [scores.newsScore=0]      - News risk score (0-100)
-   * @param {number} [scores.crowdScore=0]     - Crowd risk score (0-100)
-   * @param {number} [scores.communityScore=0] - Community incident score (0-100)
-   * @param {number} [scores.ewsScore=0]       - EWS alert score (0-100)
-   * @param {Object} [customWeights]          - Optional custom weights override
-   * @returns {{ totalRiskScore: number, level: string, breakdown: Object }}
-   */
-  calculateRisk(
-    {
-      crimeScore = 0,
-      weatherScore = 0,
-      newsScore = 0,
-      crowdScore = 0,
-      communityScore = 0,
-      ewsScore = 0,
-    } = {},
-    customWeights = null
-  ) {
-    const weights = customWeights || RISK_WEIGHTS;
+      // Python performs the actual risk calculation.
+      const response = await axios.post('http://localhost:8000/score', payload, {
+        headers: {
+          'X-API-Key': process.env.SAFETOURS_API_KEY,
+        },
+        timeout: 10000,
+      });
 
-    const crime = this.clampScore(crimeScore);
-    const weather = this.clampScore(weatherScore);
-    const news = this.clampScore(newsScore);
-    const crowd = this.clampScore(crowdScore);
-    const community = this.clampScore(communityScore);
-    const ews = this.clampScore(ewsScore);
+      const data = response.data;
+      logger.info(`[RiskEngineService] Python score-service returned: totalRiskScore=${data.score}, level=${data.zone}`);
 
-    const wCrime = Number(weights.crime ?? 0.40);
-    const wWeather = Number(weights.weather ?? 0.20);
-    const wNews = Number(weights.news ?? 0.10);
-    const wCrowd = Number(weights.crowd ?? 0.15);
-    const wCommunity = Number(weights.community ?? 0.15);
-    const wEws = Number(weights.ews ?? 0.00);
-
-    const totalWeightSum = wCrime + wWeather + wNews + wCrowd + wCommunity + wEws;
-
-    const rawWeightedScore =
-      crime * wCrime +
-      weather * wWeather +
-      news * wNews +
-      crowd * wCrowd +
-      community * wCommunity +
-      ews * wEws;
-
-    // Normalize if total weights don't equal 1.0
-    const normalizedScore = totalWeightSum > 0 ? rawWeightedScore / totalWeightSum : 0;
-    const totalRiskScore = Math.min(100, Math.max(0, Math.round(normalizedScore)));
-    const level = this.getRiskLevel(totalRiskScore);
-
-    logger.info(
-      `[RiskEngine] totalRiskScore=${totalRiskScore}, level=${level} | ` +
-      `crime=${crime}, weather=${weather}, news=${news}, crowd=${crowd}, community=${community}, ews=${ews}`
-    );
-
-    return {
-      totalRiskScore,
-      level,
-      breakdown: {
-        crime: Math.round(crime),
-        weather: Math.round(weather),
-        news: Math.round(news),
-        crowd: Math.round(crowd),
-        community: Math.round(community),
-        ews: Math.round(ews),
-      },
-    };
+      // Node.js only forwards the result.
+      return {
+        totalRiskScore: data.score,
+        level: data.zone,
+        breakdown: {
+          crime: data.breakdown.crime,
+          weather: data.breakdown.weather,
+          news: data.breakdown.news,
+          crowd: data.breakdown.crowd,
+          community: data.breakdown.community_reports,
+          infra: data.breakdown.infra,
+          time: data.breakdown.time
+        },
+      };
+    } catch (error) {
+      logger.error('[RiskEngineService] Error calling Python score-service:', error.message);
+      // Controlled backend error if Python is unavailable. DO NOT fallback to Node.js calculation.
+      throw new Error('Risk calculation service is currently unavailable.');
+    }
   }
 }
 
 module.exports = new RiskEngineService();
+
