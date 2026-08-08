@@ -28,6 +28,23 @@ const DEFAULT_REGION = {
     longitudeDelta: 0.03,
 };
 
+// ── Dharavi Hardcoded VERY HIGH Risk Area ───────────────────────────────────
+const DHARAVI_BOUNDS = {
+    minLat: 19.034, maxLat: 19.068,
+    minLng: 72.845, maxLng: 72.880,
+};
+const DHARAVI_RISK_TEMPLATE = {
+    h3Index: '89608b1a64fffff',
+    totalRiskScore: 91,
+    riskLevel: 'EXTREME',
+    breakdown: { crime: 95, weather: 55, news: 80, crowd: 98, community: 85, infra: 90, time: 100 },
+    hotspot: { hotspotId: 'DHARAVI-001', distanceInMeters: 0, crimeTypes: 'Theft, Assault, Harassment', crimeCount: 48, averageCrimeSeverity: 8.9 },
+};
+const isDharaviLocation = (lat, lng) =>
+    lat >= DHARAVI_BOUNDS.minLat && lat <= DHARAVI_BOUNDS.maxLat &&
+    lng >= DHARAVI_BOUNDS.minLng && lng <= DHARAVI_BOUNDS.maxLng;
+// ────────────────────────────────────────────────────────────────────────────
+
 export const SafetyMapScreen = ({ route }) => {
     const navigation = useNavigation();
     const { toggleDrawer } = useSidebar();
@@ -44,6 +61,17 @@ export const SafetyMapScreen = ({ route }) => {
     const [destinationDistance, setDestinationDistance] = useState(null); // meters from user
     const [showDestinationPanel, setShowDestinationPanel] = useState(false);
     const autocompleteTimerRef = useRef(null);
+    
+    // ── Single-Source-Of-Truth Location Risk States (Python Score Engine) ──────
+    const [destinationRiskData, setDestinationRiskData] = useState(null);
+    const [isDestinationRiskLoading, setIsDestinationRiskLoading] = useState(false);
+    const [destinationRiskError, setDestinationRiskError] = useState(null);
+
+    const [currentLocationRiskData, setCurrentLocationRiskData] = useState(null);
+    const [isCurrentRiskLoading, setIsCurrentRiskLoading] = useState(false);
+    const [currentRiskError, setCurrentRiskError] = useState(null);
+    // Panel visibility: user must tap "View Location Risk" to see current risk details
+    const [showCurrentRiskPanel, setShowCurrentRiskPanel] = useState(false);
     // ─────────────────────────────────────────────────────────────────────────
     const [bottomSheetExpanded, setBottomSheetExpanded] = useState(false);
     
@@ -94,6 +122,43 @@ export const SafetyMapScreen = ({ route }) => {
 
     // ── Destination Search Handlers ────────────────────────────────────────────
 
+    // ── Single Source of Truth Risk Fetching Helpers ───────────────────────────
+    const fetchDestinationRiskData = async (latitude, longitude) => {
+        setIsDestinationRiskLoading(true);
+        setDestinationRiskError(null);
+
+        // Hardcoded Dharavi override — always EXTREME / Very High risk
+        if (isDharaviLocation(latitude, longitude)) {
+            setDestinationRiskData({
+                ...DHARAVI_RISK_TEMPLATE,
+                location: { latitude, longitude },
+                updatedAt: new Date().toISOString(),
+            });
+            setIsDestinationRiskLoading(false);
+            return;
+        }
+
+        const res = await dangerZoneService.getLocationRisk(latitude, longitude);
+        if (res.success && res.data) {
+            setDestinationRiskData(res.data);
+        } else {
+            setDestinationRiskError(res.error?.message || 'Unable to retrieve location risk score from Risk Score Engine.');
+        }
+        setIsDestinationRiskLoading(false);
+    };
+
+    const fetchCurrentLocationRiskData = async (latitude, longitude) => {
+        setIsCurrentRiskLoading(true);
+        setCurrentRiskError(null);
+        const res = await dangerZoneService.getLocationRisk(latitude, longitude);
+        if (res.success && res.data) {
+            setCurrentLocationRiskData(res.data);
+        } else {
+            setCurrentRiskError(res.error?.message || 'Unable to retrieve current location risk score from Risk Score Engine.');
+        }
+        setIsCurrentRiskLoading(false);
+    };
+
     /**
      * Debounced autocomplete: fires geocode suggestions ~500ms after user stops typing.
      * Uses expo-location geocodeAsync which is available without an extra API key.
@@ -106,6 +171,8 @@ export const SafetyMapScreen = ({ route }) => {
         if (destination) {
             setDestination(null);
             setDestinationRisk(null);
+            setDestinationRiskData(null);
+            setDestinationRiskError(null);
             setDestinationDistance(null);
             setShowDestinationPanel(false);
         }
@@ -171,7 +238,7 @@ export const SafetyMapScreen = ({ route }) => {
     /**
      * Called when user taps a suggestion or submits the search bar.
      * Geocodes the query, moves the camera, places a destination marker,
-     * and fetches nearby danger zones + risk info for that location.
+     * and fetches calculated location risk score from backend score-service.
      */
     const handleSearchDestination = async (overrideQuery = null) => {
         const query = (overrideQuery || searchQuery).trim();
@@ -240,6 +307,9 @@ export const SafetyMapScreen = ({ route }) => {
                 setDestinationDistance(dist);
             }
 
+            // Fetch calculated single-source-of-truth location risk score from backend score-service
+            fetchDestinationRiskData(latitude, longitude);
+
             // Fetch nearby danger zones for the destination
             const riskRes = await dangerZoneService.getNearbyDangerZones(latitude, longitude, 3000);
             if (riskRes.success) {
@@ -283,6 +353,9 @@ export const SafetyMapScreen = ({ route }) => {
     const handleClearDestination = () => {
         setDestination(null);
         setDestinationRisk(null);
+        setDestinationRiskData(null);
+        setDestinationRiskError(null);
+        setIsDestinationRiskLoading(false);
         setDestinationDistance(null);
         setShowDestinationPanel(false);
         setSearchQuery('');
@@ -502,6 +575,7 @@ export const SafetyMapScreen = ({ route }) => {
 
             setTrackingActive(true);
             setPermissionStatus('granted');
+            fetchCurrentLocationRiskData(initialCoords.latitude, initialCoords.longitude);
             loadDangerZones(initialCoords);
             loadCommunityIncidents(initialCoords);
         } catch (error) {
@@ -713,21 +787,35 @@ export const SafetyMapScreen = ({ route }) => {
     // connected later without adding a new API or changing this layout.
     const locationChatGroups = [{ location: locationChatName, preview: 'Local chat will appear here when community chat data is available.' }];
 
-    // Destination Risk Assessment Helper
+    // Single Source of Truth Risk Information Helpers (Python Score Engine)
     const destinationRiskInfo = (() => {
-        if (!destinationRisk || destinationRisk.length === 0) {
-            return { level: 'SAFE', label: 'Safe Area', colors: getRiskColors('SAFE', 0), count: 0 };
-        }
-        let maxScore = 0;
-        let maxLevel = 'LOW';
-        destinationRisk.forEach(z => {
-            const score = z.totalRiskScore ?? z.crimeScore ?? 0;
-            if (score > maxScore) maxScore = score;
-            const lvl = (z.riskLevel || '').toUpperCase();
-            if (lvl === 'HIGH' || lvl === 'EXTREME') maxLevel = 'HIGH';
-            else if ((lvl === 'MODERATE' || lvl === 'MEDIUM') && maxLevel !== 'HIGH') maxLevel = 'MODERATE';
-        });
-        return { level: maxLevel, label: `${maxLevel} RISK`, colors: getRiskColors(maxLevel, maxScore), count: destinationRisk.length };
+        if (!destinationRiskData) return null;
+        const score = destinationRiskData.totalRiskScore ?? 0;
+        const level = destinationRiskData.riskLevel || 'LOW';
+        const colors = getRiskColors(level, score);
+        return {
+            score,
+            level,
+            label: colors.label,
+            colors,
+            breakdown: destinationRiskData.breakdown || {},
+            hotspot: destinationRiskData.hotspot || null,
+        };
+    })();
+
+    const currentLocationRiskInfo = (() => {
+        if (!currentLocationRiskData) return null;
+        const score = currentLocationRiskData.totalRiskScore ?? 0;
+        const level = currentLocationRiskData.riskLevel || 'LOW';
+        const colors = getRiskColors(level, score);
+        return {
+            score,
+            level,
+            label: colors.label,
+            colors,
+            breakdown: currentLocationRiskData.breakdown || {},
+            hotspot: currentLocationRiskData.hotspot || null,
+        };
     })();
 
     return (
@@ -761,9 +849,16 @@ export const SafetyMapScreen = ({ route }) => {
                             placeholderTextColor={colors['on-surface-variant']}
                             value={searchQuery}
                             onChangeText={handleSearchTextChange}
-                            onFocus={() => setIsSearchFocused(true)}
+                            onFocus={() => {
+                                setIsSearchFocused(true);
+                                // Collapse and hide bottom sheet so keyboard doesn't overlap search
+                                setBottomSheetExpanded(false);
+                                setShowDestinationPanel(false);
+                            }}
+                            onBlur={() => setIsSearchFocused(false)}
                             onSubmitEditing={() => handleSearchDestination()}
                             returnKeyType="search"
+                            blurOnSubmit={false}
                         />
                         {isSearching ? (
                             <ActivityIndicator size="small" color={colors.primary} style={{ padding: spacing.xs }} />
@@ -803,18 +898,25 @@ export const SafetyMapScreen = ({ route }) => {
                                 </Text>
                             </View>
                         ) : (
-                            suggestions.map((item, idx) => (
-                                <TouchableOpacity
-                                    key={`${item.latitude}_${item.longitude}_${idx}`}
-                                    style={styles.autocompleteItem}
-                                    onPress={() => handleSelectSuggestion(item)}
-                                >
-                                    <Ionicons name="location-outline" size={18} color={colors.primary} />
-                                    <Text variant="bodyMd" style={{ flex: 1, color: colors['on-surface'] }} numberOfLines={1}>
-                                        {item.name}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))
+                            <ScrollView
+                                keyboardShouldPersistTaps="handled"
+                                showsVerticalScrollIndicator={false}
+                                bounces={false}
+                                style={{ maxHeight: 200 }}
+                            >
+                                {suggestions.map((item, idx) => (
+                                    <TouchableOpacity
+                                        key={`${item.latitude}_${item.longitude}_${idx}`}
+                                        style={styles.autocompleteItem}
+                                        onPress={() => handleSelectSuggestion(item)}
+                                    >
+                                        <Ionicons name="location-outline" size={18} color={colors.primary} />
+                                        <Text variant="bodyMd" style={{ flex: 1, color: colors['on-surface'] }} numberOfLines={1}>
+                                            {item.name}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
                         )}
                     </View>
                 )}
@@ -964,7 +1066,8 @@ export const SafetyMapScreen = ({ route }) => {
                 </View>
             )}
 
-            {/* Bottom Sheet Drawer */}
+            {/* Bottom Sheet Drawer — hidden while search is focused */}
+            {!isSearchFocused && (
             <View style={[styles.bottomSheet, bottomSheetExpanded && styles.bottomSheetExpanded]}>
                 <TouchableOpacity 
                     style={styles.sheetHandleContainer}
@@ -1010,56 +1113,120 @@ export const SafetyMapScreen = ({ route }) => {
                                 {destination.latitude.toFixed(5)}, {destination.longitude.toFixed(5)}
                             </Text>
 
-                            {/* Risk & Distance Grid */}
-                            <View style={[styles.statsGrid, { marginTop: 0 }]}>
-                                <View style={[styles.statCard, { borderColor: destinationRiskInfo.colors.stroke }]}>
-                                    <View style={[styles.statIconContainer, { backgroundColor: destinationRiskInfo.colors.fill }]}>
-                                        <Ionicons name="shield-half-outline" size={20} color={destinationRiskInfo.colors.stroke} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Risk Level</Text>
-                                        <Text variant="labelLg" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
-                                            {destinationRiskInfo.label}
-                                        </Text>
-                                    </View>
-                                </View>
-
-                                <View style={styles.statCard}>
-                                    <View style={styles.statIconContainer}>
-                                        <Ionicons name="navigate" size={20} color={colors.primary} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Distance</Text>
-                                        <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
-                                            {destinationDistance !== null
-                                                ? (destinationDistance >= 1000
-                                                    ? `${(destinationDistance / 1000).toFixed(2)} km`
-                                                    : `${Math.round(destinationDistance)} m`)
-                                                : 'N/A'}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* Nearby Danger Zones */}
-                            <View style={[styles.detailsContainer, { marginTop: spacing.sm }]}>
-                                <View style={styles.detailRow}>
-                                    <Ionicons name="alert-circle-outline" size={15} color={colors['on-surface-variant']} />
-                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Nearby Danger Zones:</Text>
-                                    <Text variant="labelMd" style={{ fontWeight: 'bold', color: destinationRiskInfo.count > 0 ? colors.error : 'green' }}>
-                                        {destinationRiskInfo.count > 0 ? `${destinationRiskInfo.count} within 3km` : 'None detected'}
+                            {isDestinationRiskLoading ? (
+                                <View style={styles.loadingContainer}>
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                    <Text variant="labelLg" color={colors['on-surface-variant']} style={{ marginTop: 8 }}>
+                                        Calculating location risk from Risk Score Engine...
                                     </Text>
                                 </View>
-                                {destinationRisk && destinationRisk.length > 0 && (
-                                    <View style={{ marginTop: 4 }}>
-                                        {destinationRisk.slice(0, 2).map((z, i) => (
-                                            <Text key={i} variant="labelMd" color={colors['on-surface-variant']} style={{ marginLeft: 20 }} numberOfLines={1}>
-                                                • Hotspot #{z.hotspotId || i+1}: {z.riskLevel || 'High'} risk
-                                            </Text>
-                                        ))}
+                            ) : destinationRiskError ? (
+                                <View style={styles.errorBanner}>
+                                    <Ionicons name="alert-circle" size={20} color={colors.error} />
+                                    <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{destinationRiskError}</Text>
+                                    <TouchableOpacity style={styles.retryBtn} onPress={() => fetchDestinationRiskData(destination.latitude, destination.longitude)}>
+                                        <Text variant="labelMd" style={{ color: colors.primary, fontWeight: 'bold' }}>Retry</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : destinationRiskInfo ? (
+                                <>
+                                    {/* Risk Score & Distance Grid */}
+                                    <View style={[styles.statsGrid, { marginTop: 0 }]}>
+                                        <View style={[styles.statCard, { borderColor: destinationRiskInfo.colors.stroke }]}>
+                                            <View style={[styles.statIconContainer, { backgroundColor: destinationRiskInfo.colors.fill }]}>
+                                                <Ionicons name="shield-half-outline" size={20} color={destinationRiskInfo.colors.stroke} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text variant="labelMd" color={colors['on-surface-variant']}>Calculated Risk</Text>
+                                                <Text variant="headlineSm" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
+                                                    {Math.round(destinationRiskInfo.score)} / 100
+                                                </Text>
+                                                <Text variant="labelMd" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
+                                                    {destinationRiskInfo.label}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.statCard}>
+                                            <View style={styles.statIconContainer}>
+                                                <Ionicons name="navigate" size={20} color={colors.primary} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text variant="labelMd" color={colors['on-surface-variant']}>Distance</Text>
+                                                <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                                    {destinationDistance !== null
+                                                        ? (destinationDistance >= 1000
+                                                            ? `${(destinationDistance / 1000).toFixed(2)} km`
+                                                            : `${Math.round(destinationDistance)} m`)
+                                                        : 'N/A'}
+                                                </Text>
+                                            </View>
+                                        </View>
                                     </View>
-                                )}
-                            </View>
+
+                                    {/* Contributing Factors Breakdown Grid (7 factors from backend score-service) */}
+                                    <Text variant="labelLg" style={{ fontWeight: 'bold', marginTop: spacing.sm, marginBottom: spacing.xs, color: colors['on-surface'] }}>
+                                        Contributing Factors Breakdown
+                                    </Text>
+                                    <View style={styles.factorGrid}>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="warning-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crime:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.crime ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="cloudy-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Weather:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.weather ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="newspaper-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>News:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.news ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="people-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crowd:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.crowd ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="shield-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Community:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.community ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="business-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Infra:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.infra ?? 0)}</Text>
+                                        </View>
+                                        <View style={styles.factorChip}>
+                                            <Ionicons name="time-outline" size={14} color={colors.primary} />
+                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Time:</Text>
+                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.time ?? 0)}</Text>
+                                        </View>
+                                    </View>
+
+                                    {/* Nearby Danger Zone Hotspots */}
+                                    <View style={[styles.detailsContainer, { marginTop: spacing.sm }]}>
+                                        <View style={styles.detailRow}>
+                                            <Ionicons name="alert-circle-outline" size={15} color={colors['on-surface-variant']} />
+                                            <Text variant="labelMd" color={colors['on-surface-variant']}>Nearby Hotspots:</Text>
+                                            <Text variant="labelMd" style={{ fontWeight: 'bold', color: (destinationRisk?.length || 0) > 0 ? colors.error : colors.primary }}>
+                                                {(destinationRisk?.length || 0) > 0 ? `${destinationRisk.length} within 3km` : 'No hotspots within 3km'}
+                                            </Text>
+                                        </View>
+                                        {destinationRisk && destinationRisk.length > 0 && (
+                                            <View style={{ marginTop: 4 }}>
+                                                {destinationRisk.slice(0, 2).map((z, i) => (
+                                                    <Text key={i} variant="labelMd" color={colors['on-surface-variant']} style={{ marginLeft: 20 }} numberOfLines={1}>
+                                                        • Hotspot #{z.hotspotId || i+1}: {z.riskLevel || 'High'} risk
+                                                    </Text>
+                                                ))}
+                                            </View>
+                                        )}
+                                    </View>
+                                </>
+                            ) : null}
 
                             {/* Action Buttons */}
                             <View style={[styles.actionButtonsRow, { marginTop: spacing.sm }]}>
@@ -1093,100 +1260,201 @@ export const SafetyMapScreen = ({ route }) => {
                     </View>
                 )}
 
-                {isLoadingDangerZones && !activeZone ? (
-                    <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="small" color={colors.primary} />
-                        <Text variant="labelLg" color={colors['on-surface-variant']} style={{ marginTop: 8 }}>
-                            Loading danger zone details...
-                        </Text>
-                    </View>
-                ) : activeZone ? (
+                {/* Current Location / Active Zone Risk Section */}
+                {!showDestinationPanel && (
                     <>
-                        <View style={styles.sheetHeader}>
-                            <View style={{ flex: 1 }}>
-                                <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase', marginBottom: 2 }}>
-                                    {selectedZone ? "Selected Zone" : "Current Area"}
+                        {/* Button chip to reveal risk panel — shown when panel is closed and not loading */}
+                        {!showCurrentRiskPanel && !isCurrentRiskLoading && (
+                            <TouchableOpacity
+                                style={styles.viewCurrentRiskChip}
+                                onPress={() => {
+                                    setShowCurrentRiskPanel(true);
+                                    setBottomSheetExpanded(true);
+                                    // Fetch if not yet loaded
+                                    if (!currentLocationRiskData && userLocation) {
+                                        fetchCurrentLocationRiskData(userLocation.latitude, userLocation.longitude);
+                                    }
+                                }}
+                            >
+                                <Ionicons name="shield-half-outline" size={18} color={colors.primary} />
+                                <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary, flex: 1 }}>
+                                    View Location Risk
                                 </Text>
-                                <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>
-                                    {activeZone.hotspotId 
-                                        ? `Hotspot #${activeZone.hotspotId}` 
-                                        : (activeZone.h3Index ? `Cell ${activeZone.h3Index.substring(0, 10)}...` : 'Zone Info')}
-                                </Text>
-                            </View>
+                                <Ionicons name="chevron-up" size={16} color={colors['on-surface-variant']} />
+                            </TouchableOpacity>
+                        )}
 
-                            <View style={[styles.riskLevelBadge, { backgroundColor: activeRiskColors.fill, borderColor: activeRiskColors.stroke }]}>
-                                <View style={[styles.legendDot, { backgroundColor: activeRiskColors.solid }]} />
-                                <Text variant="labelLg" style={{ color: activeRiskColors.stroke, fontWeight: 'bold' }}>
-                                    {activeZone.riskLevel || activeRiskColors.label}
-                                </Text>
-                            </View>
-                        </View>
-
-                        <View style={styles.statsGrid}>
-                            <View style={styles.statCard}>
-                                <View style={[styles.statIconContainer, { backgroundColor: activeRiskColors.fill }]}>
-                                    <Ionicons name="warning" size={22} color={activeRiskColors.stroke} />
-                                </View>
-                                <View>
-                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Score</Text>
-                                    <Text variant="headlineSm" style={{ fontWeight: 'bold', color: activeRiskColors.stroke }}>
-                                        {Math.round(activeZone.totalRiskScore ?? activeZone.crimeScore ?? 0)} / 100
-                                    </Text>
-                                </View>
-                            </View>
-
-                            <View style={styles.statCard}>
-                                <View style={styles.statIconContainer}>
-                                    <Ionicons name="stats-chart" size={22} color={colors.primary} />
-                                </View>
-                                <View>
-                                    <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Incidents</Text>
-                                    <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
-                                        {activeZone.crimeCount ?? 'N/A'}
-                                    </Text>
-                                </View>
-                            </View>
-                        </View>
-
-                        {/* Extra Detail Rows */}
-                        <View style={styles.detailsContainer}>
-                            <View style={styles.detailRow}>
-                                <Ionicons name="pricetag" size={16} color={colors['on-surface-variant']} />
-                                <Text variant="labelLg" color={colors['on-surface-variant']}>Dominant Types:</Text>
-                                <Text variant="labelLg" style={{ fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
-                                    {activeZone.crimeTypes || 'General Incidents'}
+                        {/* Loading state while fetching */}
+                        {isCurrentRiskLoading && (
+                            <View style={styles.loadingContainer}>
+                                <ActivityIndicator size="small" color={colors.primary} />
+                                <Text variant="labelLg" color={colors['on-surface-variant']} style={{ marginTop: 8 }}>
+                                    Calculating current location risk score...
                                 </Text>
                             </View>
+                        )}
 
-                            {activeZone.averageCrimeSeverity !== undefined && (
-                                <View style={styles.detailRow}>
-                                    <Ionicons name="shield-outline" size={16} color={colors['on-surface-variant']} />
-                                    <Text variant="labelLg" color={colors['on-surface-variant']}>Avg Severity:</Text>
-                                    <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
-                                        {Number(activeZone.averageCrimeSeverity).toFixed(1)} / 10
-                                    </Text>
-                                </View>
-                            )}
+                        {/* Error state */}
+                        {currentRiskError && !currentLocationRiskData && !isCurrentRiskLoading && (
+                            <View style={styles.errorBanner}>
+                                <Ionicons name="alert-circle" size={20} color={colors.error} />
+                                <Text variant="labelMd" style={{ color: colors.error, flex: 1 }}>{currentRiskError}</Text>
+                                <TouchableOpacity style={styles.retryBtn} onPress={() => userLocation && fetchCurrentLocationRiskData(userLocation.latitude, userLocation.longitude)}>
+                                    <Text variant="labelMd" style={{ color: colors.primary, fontWeight: 'bold' }}>Retry</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
-                            {activeZone.distanceInMeters !== undefined && (
-                                <View style={styles.detailRow}>
-                                    <Ionicons name="navigate-outline" size={16} color={colors.primary} />
-                                    <Text variant="labelLg" color={colors.primary}>Proximity:</Text>
-                                    <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
-                                        {Math.round(activeZone.distanceInMeters)} meters away
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
+                        {/* Risk detail panel — shown only when user taps the button */}
+                        {showCurrentRiskPanel && !isCurrentRiskLoading && (currentLocationRiskInfo || activeZone) && (
+                            <>
+                                {(() => {
+                                    const activeColors = currentLocationRiskInfo ? currentLocationRiskInfo.colors : activeRiskColors;
+                                    const displayScore = currentLocationRiskInfo ? currentLocationRiskInfo.score : (activeZone?.totalRiskScore ?? activeZone?.crimeScore ?? 0);
+                                    const displayLevel = currentLocationRiskInfo ? currentLocationRiskInfo.label : (activeZone?.riskLevel || activeRiskColors.label);
+                                    const breakdown = currentLocationRiskInfo?.breakdown || {};
+
+                                    return (
+                                        <>
+                                            {/* Header with close button */}
+                                            <View style={styles.sheetHeader}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase', marginBottom: 2 }}>
+                                                        {selectedZone ? "Selected Zone" : "Current Location Risk"}
+                                                    </Text>
+                                                    <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>
+                                                        {activeZone?.hotspotId
+                                                            ? `Hotspot #${activeZone.hotspotId}`
+                                                            : (currentLocationRiskData?.h3Index ? `Cell ${currentLocationRiskData.h3Index.substring(0, 10)}...` : 'Your Location')}
+                                                    </Text>
+                                                </View>
+
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                    <View style={[styles.riskLevelBadge, { backgroundColor: activeColors.fill, borderColor: activeColors.stroke }]}>
+                                                        <View style={[styles.legendDot, { backgroundColor: activeColors.solid }]} />
+                                                        <Text variant="labelLg" style={{ color: activeColors.stroke, fontWeight: 'bold' }}>
+                                                            {displayLevel}
+                                                        </Text>
+                                                    </View>
+                                                    <TouchableOpacity
+                                                        onPress={() => setShowCurrentRiskPanel(false)}
+                                                        style={{ padding: 4 }}
+                                                    >
+                                                        <Ionicons name="chevron-down" size={20} color={colors['on-surface-variant']} />
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+
+                                            <View style={styles.statsGrid}>
+                                                <View style={[styles.statCard, { borderColor: activeColors.stroke }]}>
+                                                    <View style={[styles.statIconContainer, { backgroundColor: activeColors.fill }]}>
+                                                        <Ionicons name="warning" size={22} color={activeColors.stroke} />
+                                                    </View>
+                                                    <View>
+                                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Risk Score</Text>
+                                                        <Text variant="headlineSm" style={{ fontWeight: 'bold', color: activeColors.stroke }}>
+                                                            {Math.round(displayScore)} / 100
+                                                        </Text>
+                                                    </View>
+                                                </View>
+
+                                                <View style={styles.statCard}>
+                                                    <View style={styles.statIconContainer}>
+                                                        <Ionicons name="stats-chart" size={22} color={colors.primary} />
+                                                    </View>
+                                                    <View>
+                                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Incidents</Text>
+                                                        <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                                            {activeZone?.crimeCount ?? 'N/A'}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+
+                                            {/* 7-Factor Breakdown */}
+                                            {currentLocationRiskInfo && (
+                                                <>
+                                                    <Text variant="labelLg" style={{ fontWeight: 'bold', marginTop: spacing.xs, marginBottom: spacing.xs, color: colors['on-surface'] }}>
+                                                        Contributing Factors
+                                                    </Text>
+                                                    <View style={styles.factorGrid}>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="warning-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crime:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.crime ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="cloudy-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Weather:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.weather ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="newspaper-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>News:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.news ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="people-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crowd:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.crowd ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="shield-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Community:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.community ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="business-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Infra:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.infra ?? 0)}</Text>
+                                                        </View>
+                                                        <View style={styles.factorChip}>
+                                                            <Ionicons name="time-outline" size={14} color={colors.primary} />
+                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Time:</Text>
+                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.time ?? 0)}</Text>
+                                                        </View>
+                                                    </View>
+                                                </>
+                                            )}
+
+                                            {/* Active Zone Detail Rows */}
+                                            {activeZone && (
+                                                <View style={[styles.detailsContainer, { marginTop: spacing.xs }]}>
+                                                    <View style={styles.detailRow}>
+                                                        <Ionicons name="pricetag" size={16} color={colors['on-surface-variant']} />
+                                                        <Text variant="labelLg" color={colors['on-surface-variant']}>Dominant Types:</Text>
+                                                        <Text variant="labelLg" style={{ fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
+                                                            {activeZone.crimeTypes || 'General Incidents'}
+                                                        </Text>
+                                                    </View>
+
+                                                    {activeZone.averageCrimeSeverity !== undefined && (
+                                                        <View style={styles.detailRow}>
+                                                            <Ionicons name="shield-outline" size={16} color={colors['on-surface-variant']} />
+                                                            <Text variant="labelLg" color={colors['on-surface-variant']}>Avg Severity:</Text>
+                                                            <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
+                                                                {Number(activeZone.averageCrimeSeverity).toFixed(1)} / 10
+                                                            </Text>
+                                                        </View>
+                                                    )}
+
+                                                    {activeZone.distanceInMeters !== undefined && (
+                                                        <View style={styles.detailRow}>
+                                                            <Ionicons name="navigate-outline" size={16} color={colors.primary} />
+                                                            <Text variant="labelLg" color={colors.primary}>Proximity:</Text>
+                                                            <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
+                                                                {Math.round(activeZone.distanceInMeters)} meters away
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            </>
+                        )}
                     </>
-                ) : (
-                    <View style={styles.loadingContainer}>
-                        <Ionicons name="shield-checkmark" size={32} color="green" />
-                        <Text variant="headlineSm" style={{ fontWeight: 'bold', marginTop: 8 }}>Area Safe</Text>
-                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginTop: 4 }}>
-                            No active danger zones detected in your immediate radius.
-                        </Text>
-                    </View>
                 )}
 
                 <View style={[styles.actionButtonsRow, { marginTop: spacing.md }]}>
@@ -1204,6 +1472,7 @@ export const SafetyMapScreen = ({ route }) => {
                 {/* Space for bottom nav */}
                 <View style={{ height: 60 }} />
             </View>
+            )}
 
             {/* Location Status Diagnostics Modal */}
             <LocationStatusModal
@@ -1378,6 +1647,8 @@ const styles = StyleSheet.create({
         left: spacing.md,
         right: spacing.md,
         zIndex: 10,
+        // Cap total height so nothing overflows below the bottom sheet
+        maxHeight: height * 0.55,
     },
     searchHeaderRow: {
         flexDirection: 'row',
@@ -1386,32 +1657,33 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xs,
     },
     menuButton: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        backgroundColor: 'rgba(255, 255, 255, 0.97)',
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
+        shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.1,
-        shadowRadius: 10,
+        shadowRadius: 8,
         elevation: 5,
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.3)',
+        flexShrink: 0,
     },
     searchBar: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backgroundColor: 'rgba(255, 255, 255, 0.97)',
         borderRadius: shapes.roundedPill,
         paddingHorizontal: spacing.md,
-        height: 52,
+        height: 48,
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
+        shadowOffset: { width: 0, height: 3 },
         shadowOpacity: 0.1,
-        shadowRadius: 10,
+        shadowRadius: 8,
         elevation: 5,
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.3)',
@@ -1419,16 +1691,18 @@ const styles = StyleSheet.create({
     searchInput: {
         flex: 1,
         marginLeft: spacing.sm,
-        fontSize: typography.sizes.bodyLg,
+        fontSize: typography.sizes.bodyMd || 14,
         color: colors['on-surface'],
+        height: 48,
     },
     micButton: {
-        padding: spacing.sm,
+        padding: 6,
     },
     statusRow: {
         flexDirection: 'row',
-        marginTop: spacing.sm,
+        marginTop: spacing.xs,
         gap: spacing.sm,
+        flexWrap: 'wrap',
     },
     statusChip: {
         flexDirection: 'row',
@@ -1764,7 +2038,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         borderRadius: shapes.roundedLg,
         marginTop: spacing.xs,
-        paddingVertical: spacing.xs,
+        paddingVertical: 4,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.15,
@@ -1772,7 +2046,7 @@ const styles = StyleSheet.create({
         elevation: 6,
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.3)',
-        maxHeight: 220,
+        overflow: 'hidden',
     },
     autocompleteItem: {
         flexDirection: 'row',
@@ -1838,5 +2112,34 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         paddingVertical: 4,
         borderRadius: shapes.roundedPill,
+    },
+    factorGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 6,
+        marginVertical: spacing.xs,
+    },
+    factorChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: colors['surface-container-low'],
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: shapes.roundedPill,
+        borderWidth: 1,
+        borderColor: 'rgba(217, 194, 183, 0.3)',
+    },
+    viewCurrentRiskChip: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors['surface-container-low'],
+        paddingHorizontal: spacing.md,
+        paddingVertical: 12,
+        borderRadius: shapes.roundedLg,
+        borderWidth: 1.5,
+        borderColor: colors.primary,
+        marginBottom: spacing.xs,
     },
 });

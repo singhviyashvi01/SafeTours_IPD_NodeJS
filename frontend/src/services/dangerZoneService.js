@@ -85,4 +85,25 @@ export const dangerZoneService = {
       };
     }
   },
+
+  /**
+   * Fetch calculated location risk details (single source of truth from backend score-service)
+   */
+  async getLocationRisk(lat, lng) {
+    try {
+      const response = await apiClient.get('/danger-zones/location-risk', {
+        params: { lat, lng },
+      });
+      return {
+        success: true,
+        data: response.data?.data || null,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        data: null,
+        error: formatApiError(error),
+      };
+    }
+  },
 };

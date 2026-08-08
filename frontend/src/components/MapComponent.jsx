@@ -17,8 +17,9 @@ if (Platform.OS !== 'web') {
  */
 export const getRiskColors = (riskLevel, score = 0) => {
     const levelUpper = (riskLevel || '').toUpperCase();
+    const numericScore = Number(score) || 0;
     
-    if (levelUpper === 'SAFE' || score < 20) {
+    if (levelUpper === 'SAFE' || levelUpper === 'GREEN' || (numericScore > 0 && numericScore < 20)) {
         return {
             fill: 'rgba(34, 197, 94, 0.3)',
             stroke: '#15803d',
@@ -26,7 +27,7 @@ export const getRiskColors = (riskLevel, score = 0) => {
             label: 'Safe',
         };
     }
-    if (levelUpper === 'LOW' || (score >= 20 && score < 40)) {
+    if (levelUpper === 'LOW' || levelUpper === 'YELLOW' || (numericScore >= 20 && numericScore < 40)) {
         return {
             fill: 'rgba(250, 204, 21, 0.35)',
             stroke: '#ca8a04',
@@ -34,7 +35,7 @@ export const getRiskColors = (riskLevel, score = 0) => {
             label: 'Low Risk',
         };
     }
-    if (levelUpper === 'MODERATE' || levelUpper === 'MEDIUM' || (score >= 40 && score < 60)) {
+    if (levelUpper === 'MODERATE' || levelUpper === 'MEDIUM' || levelUpper === 'ORANGE' || (numericScore >= 40 && numericScore < 60)) {
         return {
             fill: 'rgba(249, 115, 22, 0.4)',
             stroke: '#c2410c',
@@ -42,11 +43,19 @@ export const getRiskColors = (riskLevel, score = 0) => {
             label: 'Moderate Risk',
         };
     }
-    // HIGH or EXTREME
+    if (levelUpper === 'VERY HIGH' || levelUpper === 'EXTREME' || numericScore >= 80) {
+        return {
+            fill: 'rgba(186, 26, 26, 0.55)',
+            stroke: '#7f1d1d',
+            solid: '#991b1b',
+            label: 'Very High Risk',
+        };
+    }
+    // HIGH or RED
     return {
-        fill: 'rgba(186, 26, 26, 0.45)',
-        stroke: '#93000a',
-        solid: colors.error || '#ba1a1a',
+        fill: 'rgba(225, 29, 72, 0.45)',
+        stroke: '#be123c',
+        solid: colors.error || '#e11d48',
         label: 'High Risk',
     };
 };

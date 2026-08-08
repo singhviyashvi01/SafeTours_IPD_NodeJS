@@ -461,27 +461,46 @@ class DangerZoneService {
   async getLocationRisk(latitude, longitude) {
     try {
       const h3GridService = require('./h3GridService');
-      
-      // Step 2: Convert latitude and longitude into H3 index (resolution 9)
-      const h3Index = h3GridService.latLngToH3(latitude, longitude, 9);
-      
-      logger.info(`[DangerZoneService.getLocationRisk] Coordinate [${latitude}, ${longitude}] mapped to H3 index '${h3Index}'.`);
+      const lat = Number(latitude);
+      const lng = Number(longitude);
 
-      // Step 3: Find corresponding DangerZone document in MongoDB
-      const zone = await DangerZone.findOne({ h3Index })
-        .select('-__v')
-        .lean();
+      // Convert latitude and longitude into H3 index (resolution 9)
+      const h3Index = h3GridService.latLngToH3(lat, lng, 9);
+      logger.info(`[DangerZoneService.getLocationRisk] Coordinate [${lat}, ${lng}] mapped to H3 index '${h3Index}'.`);
 
+      // 1. Single source of truth calculation via Python score-service
+      const riskResult = await riskEngineService.calculateRisk({
+        lat,
+        lng,
+        crowdCount: 0,
+        communityReports: [],
+      });
+
+      // 2. Fetch stored DangerZone document or nearest hotspot for extra spatial metadata if available
+      let zone = await DangerZone.findOne({ h3Index }).select('-__v').lean();
+      let nearestZone = null;
       if (!zone) {
-        logger.warn(`[DangerZoneService.getLocationRisk] No DangerZone found for H3 index '${h3Index}'.`);
-        return null;
+        nearestZone = await this.getNearestDangerZone(lat, lng);
       }
 
-      logger.info(`[DangerZoneService.getLocationRisk] Successfully retrieved DangerZone for H3 index '${h3Index}'.`);
-      return zone;
+      return {
+        h3Index,
+        totalRiskScore: riskResult.totalRiskScore,
+        riskLevel: riskResult.level,
+        breakdown: riskResult.breakdown,
+        location: { latitude: lat, longitude: lng },
+        hotspot: zone || (nearestZone ? {
+          hotspotId: nearestZone.hotspotId,
+          distanceInMeters: Math.round(nearestZone.distanceInMeters),
+          crimeTypes: nearestZone.crimeTypes,
+          crimeCount: nearestZone.crimeCount,
+          averageCrimeSeverity: nearestZone.averageCrimeSeverity,
+        } : null),
+        updatedAt: new Date(),
+      };
     } catch (error) {
-      logger.error(`[DangerZoneService.getLocationRisk] Lookup failed for coordinates [${latitude}, ${longitude}].`, error);
-      throw new Error('Failed to retrieve location risk details from the database.');
+      logger.error(`[DangerZoneService.getLocationRisk] Risk calculation failed for coordinates [${latitude}, ${longitude}].`, error);
+      throw error;
     }
   }
 
