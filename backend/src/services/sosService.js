@@ -2,259 +2,344 @@ const SOSHistory = require('../models/SOSHistory');
 const Location = require('../models/Location');
 const Journey = require('../models/Journey');
 const EmergencyContact = require('../models/EmergencyContact');
+const UserGeofenceState = require('../models/UserGeofenceState');
 const notificationService = require('./notificationService');
 const smsService = require('./smsService');
+const cfg = require('../config/geofence.config');
+const { confirmDeadline, secondsLeft } = require('./sos/sosPolicy');
 const ApiError = require('../utils/apiError');
 const logger = require('../utils/logger');
 
-class SOSService {
-  /**
-   * Triggers an SOS alert (either manual or automatic).
-   * 
-   * @param {string} userId - The authenticated user's ID
-   * @param {Object} data - Contains locationId, optional journeyId, and optional reason
-   * @param {string} type - The type of SOS ('manual' | 'automatic')
-   * @returns {Promise<Object>} The created SOS history record
-   */
-  async triggerSOS(userId, data, type) {
-    const { locationId, journeyId, reason, triggerSource, dangerZoneId, riskLevel } = data;
+/**
+ * SOS service.
+ *
+ * Flow
+ *  - Manual SOS (POST /api/sos): active immediately, contacts notified.
+ *  - Safety checks (geofence ENTER, Shadow Mode ETA passed): created as pending_confirmation with a
+ *    persisted deadline (confirmBy). The user can cancel ("I'm safe") or confirm ("Send SOS now").
+ *    With no answer, processDue() (run by scheduler/safetyScheduler.js every few seconds) escalates it.
+ *    The deadline lives in MongoDB, so it survives a server restart: there are no in-memory timers.
+ *  - One pending-or-active record per user. Idempotency keys make retried requests return the
+ *    original record instead of creating another.
+ *
+ * Contacts are phone numbers, not app users: they are reached by SMS only (Twilio if configured, else
+ * the server only logs and the app opens the on-device composer when it is open).
+ */
 
-    // 1. Business Logic: Check if the user already has an active SOS
-    const existingActiveSOS = await SOSHistory.findOne({ user: userId, status: 'active' }).exec();
-    if (existingActiveSOS) {
-      throw new ApiError(400, 'An active SOS alert is already in progress for this user.');
-    }
+const OPEN = ['pending_confirmation', 'active'];
+const isDuplicateKey = (e) => e && (e.code === 11000 || /E11000/.test(e.message || ''));
 
-    // 2. Fetch Location: Either by specified locationId or fall back to the user's latest location
-    let locationDoc = null;
-    if (locationId) {
-      locationDoc = await Location.findOne({ _id: locationId, userId }).exec();
-    }
-    if (!locationDoc) {
-      locationDoc = await Location.findOne({ userId }).sort({ timestamp: -1 }).exec();
-    }
+/** Client-facing shape (adds secondsLeft for a pending check). */
+function view(rec, now = new Date()) {
+  if (!rec) return null;
+  const o = typeof rec.toObject === 'function' ? rec.toObject() : { ...rec };
+  o.id = String(o._id);
+  if (o.status === 'pending_confirmation') o.secondsLeft = secondsLeft(o, now);
+  return o;
+}
 
-    if (!locationDoc) {
-      throw new ApiError(404, 'No location record found. A valid location is required to trigger an SOS.');
-    }
+const validCoords = (c) => c && Number.isFinite(Number(c.latitude)) && Number.isFinite(Number(c.longitude));
 
-    // 3. Fetch active Journey (if any)
-    let journeyDoc = null;
-    if (journeyId) {
-      journeyDoc = await Journey.findOne({ _id: journeyId, userId, status: 'ACTIVE' }).exec();
-    }
-    if (!journeyDoc) {
-      journeyDoc = await Journey.findOne({ userId, status: 'ACTIVE' }).exec();
-    }
+/** The SOS location: the one in the request, else the user's latest stored location. Never invented. */
+async function resolveCoords(userId, location, now = new Date()) {
+  if (validCoords(location)) {
+    return {
+      latitude: Number(location.latitude),
+      longitude: Number(location.longitude),
+      accuracy: Number.isFinite(Number(location.accuracy)) ? Number(location.accuracy) : null,
+      timestamp: location.timestamp ? new Date(location.timestamp) : now,
+      approximate: false,
+    };
+  }
+  const last = await Location.findOne({ userId }).sort({ timestamp: -1 }).lean();
+  if (last?.location?.coordinates) {
+    return {
+      latitude: last.location.coordinates[1],
+      longitude: last.location.coordinates[0],
+      accuracy: last.accuracy ?? null,
+      timestamp: last.timestamp,
+      approximate: true,
+    };
+  }
+  throw new ApiError(400, 'A location is required: send location {latitude, longitude} with the SOS.');
+}
 
-    // For standard automatic SOS (non-geofence), a journey is typically required by business logic
-    if (type === 'automatic' && !journeyDoc && triggerSource !== 'GEOFENCE') {
-      throw new ApiError(400, 'An active journey is required to trigger an automatic SOS.');
-    }
+async function findOpen(userId) {
+  return SOSHistory.findOne({ user: userId, status: { $in: OPEN } }).sort({ createdAt: -1 });
+}
 
-    // 4. Fetch Emergency Contacts to notify
-    const contacts = await EmergencyContact.find({ user: userId }).sort({ priority: 1, createdAt: -1 }).exec();
-    if (!contacts || contacts.length === 0) {
-      throw new ApiError(400, 'No emergency contacts found. Please add at least one emergency contact before triggering an SOS.');
-    }
-    const notifiedContactIds = contacts.map(contact => contact._id);
+async function activeJourneyId(userId, journeyId) {
+  if (journeyId) {
+    const j = await Journey.findOne({ _id: journeyId, userId, status: 'ACTIVE' }).select('_id').lean();
+    if (j) return j._id;
+  }
+  const active = await Journey.findOne({ userId, status: 'ACTIVE' }).select('_id').lean();
+  return active ? active._id : null;
+}
 
-    // 5. Create SOSHistory record
-    const sosRecord = await SOSHistory.create({
-      user: userId,
-      journey: journeyDoc ? journeyDoc._id : null,
-      location: locationDoc._id,
-      type,
-      triggerSource: triggerSource || (type === 'automatic' ? 'AUTOMATIC' : 'MANUAL'),
-      dangerZone: dangerZoneId || null,
-      riskLevel: riskLevel || null,
-      status: 'active',
-      triggeredAt: new Date(),
-      reason: reason || '',
-      notifiedContacts: notifiedContactIds,
-      metadata: {
-        dangerZoneId: dangerZoneId || null,
-        riskLevel: riskLevel || null,
-        triggerSource: triggerSource || (type === 'automatic' ? 'AUTOMATIC' : 'MANUAL'),
-      },
-    });
-
-    // 6. Log a notification record for this SOS trigger
-    // Fire-and-forget: notification failure must not roll back the SOS event
-    notificationService.createNotification({
-      userId,
-      type: 'SOS',
-      title: 'Emergency SOS Activated',
-      message: `An ${type} SOS alert was triggered${journeyDoc ? ' during your active journey' : ''}. Emergency contacts have been notified.`,
-      metadata: {
-        sosId: sosRecord._id,
-        sosType: type,
-        triggerSource: sosRecord.triggerSource,
-        locationId: locationDoc._id,
-        coordinates: locationDoc.location?.coordinates ?? null,
-        journeyId: journeyDoc ? journeyDoc._id : null,
-        triggeredAt: sosRecord.triggeredAt,
-      },
-    }).catch((err) => {
-      // Log the error but do not throw — SOS record is already safely persisted
-      console.error('[NotificationService] Failed to create SOS notification:', err.message);
-    });
-
-    // 7. Fire-and-forget server-side automatic SMS dispatch to emergency contacts
-    smsService.sendSOSToSMSContacts({
-      userId,
+/** Notifies contacts (SMS) and the user (push + in-app). Never throws. */
+async function dispatchEscalation(rec) {
+  try {
+    const contacts = await EmergencyContact.find({ user: rec.user }).sort({ priority: 1, createdAt: -1 }).exec();
+    const sms = await smsService.sendSOSToSMSContacts({
+      userId: rec.user,
       contacts,
-      locationDoc,
-      type,
-      reason: sosRecord.reason,
-    }).catch((err) => {
-      logger.error('[SMSService] Automatic SMS dispatch failed:', err.message);
+      coords: rec.coords,
+      type: rec.type,
+      reason: rec.reason,
+      timestamp: rec.coords?.timestamp,
     });
-
-    return sosRecord;
+    await SOSHistory.updateOne(
+      { _id: rec._id },
+      { $set: { notifiedContacts: contacts.map((c) => c._id), 'metadata.sms': sms, 'metadata.contactCount': contacts.length } }
+    );
+    await notificationService.notify({
+      userId: rec.user,
+      type: 'SOS',
+      title: 'Emergency SOS sent',
+      message: contacts.length
+        ? `Your emergency contacts (${contacts.length}) have been alerted with your location.`
+        : 'SOS recorded, but you have no emergency contacts to alert. Add contacts in the app.',
+      metadata: { sosId: String(rec._id), triggerSource: rec.triggerSource },
+      channelId: 'sos',
+    });
+  } catch (error) {
+    logger.error(`[SOS] escalation dispatch failed for ${rec._id}`, error);
   }
+}
 
-  /**
-   * Triggers an automatic SOS from Geofencing detection engine.
-   * Duplicate prevention: checks if user already has an active SOS.
-   *
-   * @param {string|Object} userId - User ID
-   * @param {Object} geofenceData - { latitude, longitude, zoneId, riskLevel, reason }
-   * @returns {Promise<Object>} { triggered: boolean, sos?: Object, reason?: string }
-   */
-  async triggerGeofenceSOS(userId, { latitude, longitude, zoneId, riskLevel, reason }) {
+class SOSService {
+  /** Manual SOS. Active immediately; an existing pending check is escalated instead of duplicated. */
+  async createManual(userId, { location, journeyId, reason, idempotencyKey }, now = new Date()) {
+    if (idempotencyKey) {
+      const same = await SOSHistory.findOne({ user: userId, idempotencyKey });
+      if (same) return { record: view(same, now), duplicate: true };
+    }
+
+    const open = await findOpen(userId);
+    if (open && open.status === 'pending_confirmation') {
+      const escalated = await this.escalate(open._id, { by: 'user' });
+      return { record: view(escalated || open, now), duplicate: false, escalatedPending: true };
+    }
+    if (open && open.status === 'active') {
+      return { record: view(open, now), duplicate: true, alreadyActive: true };
+    }
+
+    const coords = await resolveCoords(userId, location, now);
+    const contacts = await EmergencyContact.countDocuments({ user: userId });
+    if (contacts === 0) {
+      throw new ApiError(400, 'No emergency contacts found. Add at least one emergency contact before sending an SOS.');
+    }
+
+    let rec;
     try {
-      // 1. Duplicate Prevention: Check if user already has an active SOS
-      const existingActiveSOS = await SOSHistory.findOne({ user: userId, status: 'active' }).exec();
-      if (existingActiveSOS) {
-        logger.info(`[SOSService.triggerGeofenceSOS] Active SOS already exists (${existingActiveSOS._id}) for user '${userId}'. Skipping duplicate creation.`);
-        return { triggered: false, reason: 'Duplicate active SOS prevented', sos: existingActiveSOS };
-      }
-
-      // 2. Fetch or create Location record for coordinate snapshot
-      let locationDoc = await Location.findOne({ userId }).sort({ timestamp: -1 }).exec();
-      if (!locationDoc) {
-        locationDoc = await Location.create({
-          userId,
-          location: {
-            type: 'Point',
-            coordinates: [Number(longitude), Number(latitude)],
-          },
-          accuracy: 5,
-          timestamp: new Date(),
-        });
-      }
-
-      // 3. Fetch active Journey (if any)
-      const journeyDoc = await Journey.findOne({ userId, status: 'ACTIVE' }).exec();
-
-      // 4. Fetch emergency contacts to notify
-      const contacts = await EmergencyContact.find({ user: userId }).sort({ priority: 1, createdAt: -1 }).exec();
-      const notifiedContactIds = contacts ? contacts.map((c) => c._id) : [];
-
-      // 5. Create SOSHistory record with triggerSource = "GEOFENCE"
-      const sosRecord = await SOSHistory.create({
+      rec = await SOSHistory.create({
         user: userId,
-        journey: journeyDoc ? journeyDoc._id : null,
-        location: locationDoc._id,
-        type: 'automatic',
-        triggerSource: 'GEOFENCE',
-        dangerZone: zoneId || null,
-        riskLevel: riskLevel || 'HIGH',
+        journey: await activeJourneyId(userId, journeyId),
+        coords,
+        type: 'manual',
+        triggerSource: 'MANUAL',
         status: 'active',
-        triggeredAt: new Date(),
-        reason: reason || `Automatic SOS triggered upon entering ${riskLevel} Risk Area`,
-        notifiedContacts: notifiedContactIds,
-        metadata: {
-          dangerZoneId: zoneId || null,
-          riskLevel: riskLevel || 'HIGH',
-          triggerSource: 'GEOFENCE',
-          coordinates: [Number(longitude), Number(latitude)],
-        },
+        triggeredAt: now,
+        escalatedAt: now,
+        escalatedBy: 'user',
+        reason: reason || 'Manual SOS',
+        idempotencyKey: idempotencyKey || undefined,
       });
+    } catch (e) {
+      if (isDuplicateKey(e) && idempotencyKey) {
+        const same = await SOSHistory.findOne({ user: userId, idempotencyKey });
+        if (same) return { record: view(same, now), duplicate: true };
+      }
+      throw e;
+    }
 
-      logger.info(`[SOSService.triggerGeofenceSOS] Automatic Geofence SOS triggered for user '${userId}': SOS ID = ${sosRecord._id}`);
+    dispatchEscalation(rec); // fire and forget: the record is already safely stored
+    return { record: view(rec, now), duplicate: false };
+  }
 
-      // 6. Notification dispatch (fire-and-forget)
-      notificationService
-        .createNotification({
-          userId,
-          type: 'SOS',
-          title: 'Automatic Geofence SOS Alert',
-          message: `Automatic SOS triggered upon entering ${riskLevel} Risk Area.`,
-          metadata: {
-            sosId: sosRecord._id,
-            sosType: 'automatic',
-            triggerSource: 'GEOFENCE',
-            dangerZoneId: zoneId || null,
-            riskLevel: riskLevel || 'HIGH',
-            coordinates: [Number(longitude), Number(latitude)],
-            triggeredAt: sosRecord.triggeredAt,
-          },
-        })
-        .catch((err) => {
-          logger.error('[NotificationService] Failed to create Geofence SOS notification:', err.message);
-        });
+  /**
+   * Creates an "Are you safe?" check that auto-escalates at confirmBy.
+   * @param {Object} p { trigger:'GEOFENCE'|'SHADOW_MODE', coords, journeyId?, h3Index?, riskLevel?, zoneId?, reason, idempotencyKey }
+   * @returns {Promise<Object|null>} the record, or null when one is already open / the key was used
+   */
+  async createSafetyCheck(userId, p, now = new Date()) {
+    if (p.idempotencyKey) {
+      const same = await SOSHistory.findOne({ user: userId, idempotencyKey: p.idempotencyKey });
+      if (same) return view(same, now);
+    }
+    if (await findOpen(userId)) return null;
 
-      // 7. Fire-and-forget server-side automatic SMS dispatch to emergency contacts
-      smsService.sendSOSToSMSContacts({
-        userId,
-        contacts,
-        locationDoc,
+    const confirmBy = confirmDeadline(now, cfg.sos.confirmSeconds);
+    let rec;
+    try {
+      rec = await SOSHistory.create({
+        user: userId,
+        journey: p.journeyId || null,
+        coords: p.coords,
         type: 'automatic',
-        reason: sosRecord.reason,
-      }).catch((err) => {
-        logger.error('[SMSService] Automatic Geofence SMS dispatch failed:', err.message);
+        triggerSource: p.trigger,
+        dangerZone: p.zoneId || null,
+        riskLevel: p.riskLevel || null,
+        status: 'pending_confirmation',
+        confirmBy,
+        triggeredAt: now,
+        reason: p.reason || '',
+        idempotencyKey: p.idempotencyKey || undefined,
+        metadata: { h3Index: p.h3Index || null, confirmSeconds: cfg.sos.confirmSeconds },
       });
-
-      return { triggered: true, sos: sosRecord };
-    } catch (error) {
-      logger.error(`[SOSService.triggerGeofenceSOS] Failed to trigger geofence SOS for user '${userId}':`, error);
-      throw error;
+    } catch (e) {
+      if (isDuplicateKey(e)) return null;
+      throw e;
     }
+
+    const isEta = p.trigger === 'SHADOW_MODE';
+    notificationService
+      .notify({
+        userId,
+        type: 'SAFETY_CHECK',
+        title: isEta ? 'Are you okay?' : 'Are you safe?',
+        message: isEta
+          ? `You have not arrived by your expected time. Respond within ${cfg.sos.confirmSeconds} seconds or your contacts will be alerted.`
+          : `You are in a ${String(p.riskLevel || 'high').toLowerCase()} risk area. Respond within ${cfg.sos.confirmSeconds} seconds or your contacts will be alerted.`,
+        metadata: {
+          sosId: String(rec._id),
+          trigger: p.trigger,
+          confirmBy: confirmBy.toISOString(),
+          riskLevel: p.riskLevel || null,
+        },
+        channelId: 'safety-check',
+        ttl: cfg.sos.confirmSeconds,
+      })
+      .catch((e) => logger.error('[SOS] safety-check notification failed', e));
+
+    return view(rec, now);
   }
 
   /**
-   * Cancels an active SOS alert.
-   * 
-   * @param {string} userId - The authenticated user's ID
-   * @param {string} sosId - The ID of the SOS event to cancel
-   * @param {string} reason - Optional reason for cancelling
-   * @returns {Promise<Object>} The updated SOS history record
+   * pending_confirmation -> active, atomically (so a user "Send SOS now" racing the deadline
+   * escalates once). Returns the updated record, or null if it was no longer pending.
    */
-  async cancelSOS(userId, sosId, reason) {
-    // 1. Fetch only an active SOS belonging to the authenticated user
-    const sosRecord = await SOSHistory.findOne({ _id: sosId, user: userId, status: 'active' }).exec();
-    if (!sosRecord) {
-      throw new ApiError(404, 'No active SOS alert found for this ID.');
-    }
+  async escalate(sosId, { by }, now = new Date()) {
+    const rec = await SOSHistory.findOneAndUpdate(
+      { _id: sosId, status: 'pending_confirmation' },
+      { $set: { status: 'active', escalatedAt: now, escalatedBy: by, triggeredAt: now } },
+      { returnDocument: 'after' }
+    );
+    if (!rec) return null;
+    logger.warn(`[SOS] ${rec._id} escalated (${by}) for user ${rec.user} (${rec.triggerSource})`);
+    dispatchEscalation(rec);
+    return rec;
+  }
 
-    // 2. Update status and cancelled timestamp
-    sosRecord.status = 'cancelled';
-    sosRecord.cancelledAt = new Date();
-    if (reason !== undefined) {
-      sosRecord.reason = reason;
-    }
-
-    await sosRecord.save();
-    return sosRecord;
+  /** User confirms they need help (the "Send SOS now" button). */
+  async confirm(userId, sosId, now = new Date()) {
+    const rec = await SOSHistory.findOne({ _id: sosId, user: userId });
+    if (!rec) throw new ApiError(404, 'SOS not found.');
+    if (rec.status === 'active') return { record: view(rec, now), duplicate: true };
+    if (rec.status !== 'pending_confirmation') throw new ApiError(409, `This check is already ${rec.status}.`);
+    const updated = await this.escalate(rec._id, { by: 'user' }, now);
+    return { record: view(updated || (await SOSHistory.findById(rec._id)), now), duplicate: !updated };
   }
 
   /**
-   * Retrieves SOS history for a user, sorted newest first.
-   * 
-   * @param {string} userId - The user's ID
-   * @returns {Promise<Array>} List of SOSHistory records
+   * "I'm safe" for a pending check, or cancel for an active SOS. Idempotent: cancelling something
+   * already closed returns it unchanged. Side effects of a cancelled PENDING check:
+   *  - GEOFENCE: starts the cooldown around the cell where it was created
+   *  - SHADOW_MODE: pushes the journey ETA out by extendMinutes (default 15)
    */
+  async cancel(userId, sosId, { reason, extendMinutes } = {}, now = new Date()) {
+    const rec = await SOSHistory.findOne({ _id: sosId, user: userId });
+    if (!rec) throw new ApiError(404, 'SOS not found.');
+    if (!OPEN.includes(rec.status)) return { record: view(rec, now), alreadyClosed: true };
+
+    const wasPending = rec.status === 'pending_confirmation';
+    const updated = await SOSHistory.findOneAndUpdate(
+      { _id: rec._id, status: { $in: OPEN } },
+      {
+        $set: {
+          status: 'cancelled',
+          cancelledAt: now,
+          cancelledBy: 'user',
+          cancelReason: reason || (wasPending ? 'User confirmed they are safe' : 'Cancelled by user'),
+        },
+      },
+      { returnDocument: 'after' }
+    );
+    if (!updated) {
+      return { record: view(await SOSHistory.findById(rec._id), now), alreadyClosed: true };
+    }
+
+    if (wasPending) {
+      if (rec.triggerSource === 'GEOFENCE' && rec.metadata?.h3Index) {
+        await UserGeofenceState.updateOne(
+          { userId },
+          { $set: { cooldownCell: rec.metadata.h3Index, cooldownUntil: new Date(now.getTime() + cfg.sos.cooldownMinutes * 60000) } }
+        );
+      }
+      if (rec.triggerSource === 'SHADOW_MODE' && rec.journey) {
+        const minutes = Math.min(Math.max(Number(extendMinutes) || cfg.eta.defaultExtendMinutes, 1), cfg.eta.maxExtendMinutes);
+        await Journey.updateOne(
+          { _id: rec.journey, userId, status: 'ACTIVE' },
+          { $set: { expectedArrivalTime: new Date(now.getTime() + minutes * 60000) } }
+        );
+      }
+    }
+    return { record: view(updated, now), wasPending };
+  }
+
+  /** Cancels pending checks of a journey (ETA extended by the user, or journey ended / arrived). */
+  async cancelPendingForJourney(journeyId, reason, now = new Date()) {
+    const res = await SOSHistory.updateMany(
+      { journey: journeyId, triggerSource: 'SHADOW_MODE', status: 'pending_confirmation' },
+      { $set: { status: 'cancelled', cancelledAt: now, cancelledBy: 'system', cancelReason: reason } }
+    );
+    return res.modifiedCount || 0;
+  }
+
+  /** The user's open pending check (if any), for the in-app prompt and polling fallback. */
+  async getPending(userId, now = new Date()) {
+    const rec = await SOSHistory.findOne({ user: userId, status: 'pending_confirmation' }).sort({ createdAt: -1 });
+    return rec ? view(rec, now) : null;
+  }
+
+  async getActive(userId, now = new Date()) {
+    const rec = await SOSHistory.findOne({ user: userId, status: 'active' }).sort({ createdAt: -1 });
+    return rec ? view(rec, now) : null;
+  }
+
   async getSOSHistory(userId) {
-    return await SOSHistory.find({ user: userId })
-      .sort({ triggeredAt: -1 })
-      .populate('location')
-      .populate('journey')
-      .populate('notifiedContacts')
-      .populate('dangerZone')
-      .exec();
+    const rows = await SOSHistory.find({ user: userId }).sort({ triggeredAt: -1 }).limit(100).populate('notifiedContacts').lean();
+    return rows.map((r) => ({ ...r, id: String(r._id) }));
+  }
+
+  /**
+   * Called every few seconds by the safety scheduler. Escalates pending checks whose deadline has
+   * passed and closes active SOS records older than sos.activeMaxHours (they must not block new SOS forever).
+   */
+  async processDue(now = new Date(), limit = 25) {
+    const due = await SOSHistory.find({ status: 'pending_confirmation', confirmBy: { $lte: now } })
+      .sort({ confirmBy: 1 })
+      .limit(limit)
+      .select('_id')
+      .lean();
+    let escalated = 0;
+    for (const { _id } of due) {
+      try {
+        if (await this.escalate(_id, { by: 'timeout' }, now)) escalated += 1;
+      } catch (e) {
+        logger.error(`[SOS] could not escalate ${_id}`, e);
+      }
+    }
+
+    const cutoff = new Date(now.getTime() - cfg.sos.activeMaxHours * 3600000);
+    const closed = await SOSHistory.updateMany(
+      { status: 'active', escalatedAt: { $lte: cutoff } },
+      { $set: { status: 'resolved', resolvedAt: now, 'metadata.autoResolved': true } }
+    );
+    return { escalated, autoResolved: closed.modifiedCount || 0 };
   }
 }
 
 module.exports = new SOSService();
+module.exports.OPEN = OPEN;

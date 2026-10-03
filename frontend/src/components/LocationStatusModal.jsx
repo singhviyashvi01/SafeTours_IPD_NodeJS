@@ -23,9 +23,11 @@ export const LocationStatusModal = ({
   const accuracyText = accuracy ? `±${Math.round(accuracy)}m` : '±10m';
   const updateTimeText = lastUpdateTime ? new Date(lastUpdateTime).toLocaleTimeString() : 'Just now';
 
-  const riskLevel = currentZone ? (currentZone.riskLevel || 'HIGH') : 'SAFE';
-  const riskScore = currentZone ? Math.round(currentZone.totalRiskScore ?? currentZone.crimeScore ?? 0) : 0;
-  const riskColors = getRiskColors(riskLevel, riskScore);
+  // currentZone is the backend risk result for the cell the user is in (null until it loads).
+  // No data is UNKNOWN, never SAFE.
+  const riskLevel = currentZone?.riskLevel || 'UNKNOWN';
+  const riskScore = currentZone?.totalRiskScore;
+  const riskColors = getRiskColors(riskLevel);
 
   return (
     <Modal
@@ -58,7 +60,7 @@ export const LocationStatusModal = ({
                   Safety Badge: {riskColors.label.toUpperCase()}
                 </Text>
                 <Text variant="labelMd" color={colors['on-surface-variant']}>
-                  {currentZone ? `Inside Zone #${currentZone.hotspotId || 'Active'}` : 'Currently in a Safe Area'}
+                  {currentZone ? `Cell ${String(currentZone.h3Index || '').slice(-6)}: ${riskColors.label}` : 'Risk of this area not loaded yet'}
                 </Text>
               </View>
             </View>

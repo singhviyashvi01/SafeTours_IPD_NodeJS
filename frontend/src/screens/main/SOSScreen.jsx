@@ -5,7 +5,6 @@ import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { locationService } from '../../services/locationService';
 import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -17,10 +16,8 @@ export const SOSScreen = () => {
     const navigation = useNavigation();
     const route = useRoute();
     const { toggleDrawer } = useSidebar();
-    const [isShadowMode, setIsShadowMode] = useState(true);
-    const [showSafetyModal, setShowSafetyModal] = useState(false);
+    const [activeJourney, setActiveJourney] = useState(null);
     const [showShareSheet, setShowShareSheet] = useState(false);
-    const [countdown, setCountdown] = useState(60);
 
     // Toast States
     const [toastMessage, setToastMessage] = useState(null);
@@ -53,6 +50,7 @@ export const SOSScreen = () => {
 
         fetchCurrentLocation();
         loadActiveSOS();
+        loadJourney();
 
         // A navigation SOS request is sent immediately, so Home does not require a second tap.
         if (route.params?.triggerSOS) {
@@ -60,27 +58,28 @@ export const SOSScreen = () => {
         }
     }, []);
 
-    // The backend does not expose a separate active-SOS endpoint. History contains
-    // the current alert, so reading it here restores cancellation controls after a restart.
+    // Restores the cancel controls after an app restart.
     const loadActiveSOS = async () => {
         setSosError(null);
-        const historyResult = await sosService.getHistory();
-
-        if (!historyResult.success) {
-            const isOffline = historyResult.error?.status === 0;
+        const res = await sosService.getActive();
+        if (!res.success) {
             setSosError(
-                isOffline
+                res.error?.status === 0
                     ? 'You are offline. SOS status will refresh when the connection returns.'
-                    : historyResult.error?.message || 'Could not load the current SOS status.'
+                    : res.error?.message || 'Could not load the current SOS status.'
             );
             return;
         }
-
-        const activeSOS = (historyResult.data || []).find(item => item.status === 'active');
-        if (activeSOS) {
-            setActiveSosRecord(activeSOS);
-            setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
+        if (res.data) {
+            setActiveSosRecord(res.data);
+            setStatusMessage('SOS ACTIVE: Emergency Contacts Notified');
         }
+    };
+
+    // Shadow Mode is the server-side journey ETA watch: it is ON exactly while a journey is active.
+    const loadJourney = async () => {
+        const res = await journeyService.getActive();
+        setActiveJourney(res.success ? res.journey : null);
     };
 
     const fetchCurrentLocation = async () => {
@@ -98,168 +97,76 @@ export const SOSScreen = () => {
         }
     };
 
-    useEffect(() => {
-        let interval;
-        if (showSafetyModal && countdown > 0) {
-            interval = setInterval(() => {
-                setCountdown((prev) => prev - 1);
-            }, 1000);
-        } else if (countdown === 0) {
-            // Trigger automatic SOS when countdown expires
-            setShowSafetyModal(false);
-            handleAutomaticSOSTrigger();
-        }
-        return () => clearInterval(interval);
-    }, [showSafetyModal, countdown]);
-
-    // Sync a real device location first so the existing SOS APIs receive a saved location ID.
-    const prepareSOSData = async () => {
-        let locationId = null;
-        let currentCoordinates = userLocation;
-
-        if (!currentCoordinates) {
-            await fetchCurrentLocation();
-            const { status } = await Location.getForegroundPermissionsAsync();
-            if (status === 'granted') {
-                const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-                currentCoordinates = {
-                    latitude: location.coords.latitude,
-                    longitude: location.coords.longitude,
-                };
-                setUserLocation(currentCoordinates);
-            }
-        }
-
-        if (!currentCoordinates) return { locationId: null, journeyId: null, coordinates: null };
-
-        // Try syncing fresh location first to get locationId from Location API response
-        const syncRes = await locationService.syncLocation({
-            latitude: currentCoordinates.latitude,
-            longitude: currentCoordinates.longitude,
-            accuracy: 10,
-            timestamp: new Date().toISOString(),
-        });
-
-        const syncedLoc = syncRes.data?.data || syncRes.data;
-        if (syncRes.success && (syncedLoc?._id || syncedLoc?.id)) {
-            locationId = syncedLoc._id || syncedLoc.id;
-        } else {
-            // Fallback: Fetch latest location from locationService
-            const latestRes = await locationService.getLatestLocation();
-            if (latestRes.success && latestRes.location) {
-                locationId = latestRes.location._id || latestRes.location.id;
-            }
-        }
-
-        // Fetch active journey if any
-        let journeyId = null;
+    // A fresh high-accuracy fix; falls back to the last known position, then to the screen's last fix.
+    // The location is sent INSIDE the SOS request: /location does not have to be called first.
+    const getSOSLocation = async () => {
         try {
-            const journeyRes = await journeyService.getActive();
-            if (journeyRes.success && journeyRes.journey) {
-                journeyId = journeyRes.journey._id || journeyRes.journey.id || null;
+            let perm = await Location.getForegroundPermissionsAsync();
+            if (perm.status !== 'granted') perm = await Location.requestForegroundPermissionsAsync();
+            if (perm.status === 'granted') {
+                try {
+                    const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+                    return toSOSLocation(loc);
+                } catch (e) {
+                    const last = await Location.getLastKnownPositionAsync();
+                    if (last) return toSOSLocation(last);
+                }
             }
-        } catch (err) {
-            console.warn('Could not fetch active journey for SOS:', err);
+        } catch (e) {
+            console.warn('Could not read location for SOS:', e);
         }
-
-        return { locationId, journeyId, coordinates: currentCoordinates };
+        return userLocation ? { ...userLocation, timestamp: new Date().toISOString() } : null;
     };
 
+    const toSOSLocation = (loc) => {
+        const coords = {
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            accuracy: loc.coords.accuracy ?? undefined,
+            timestamp: new Date(loc.timestamp).toISOString(),
+        };
+        setUserLocation({ latitude: coords.latitude, longitude: coords.longitude });
+        return coords;
+    };
+
+    // One idempotency key per SOS attempt, reused on retries, so a slow or repeated request can never
+    // create two SOS records.
+    const sosKeyRef = useRef(null);
+
     const handleSOSPress = async () => {
+        if (isSubmitting) return;
         setIsSubmitting(true);
         setSosError(null);
-        setStatusMessage('Broadcasting Emergency SOS...');
+        setStatusMessage('Sending Emergency SOS...');
+        sosKeyRef.current = sosKeyRef.current || sosService.newKey();
 
-        const { locationId, journeyId, coordinates } = await prepareSOSData();
-
-        if (!locationId) {
-            setIsSubmitting(false);
-            setStatusMessage('SOS Status: Ready');
-            Alert.alert('SOS Error', 'Could not obtain location record for SOS trigger.');
-            return;
-        }
-
-        const payload = {
-            locationId,
-            ...(journeyId ? { journeyId } : {}),
-            reason: 'Manual SOS button pressed by user from mobile screen.',
-        };
-
-        const res = await sosService.triggerManual(payload);
+        const location = await getSOSLocation();
+        const res = await sosService.create({
+            location: location || undefined,
+            journeyId: activeJourney?._id,
+            reason: 'Manual SOS button pressed by user.',
+            idempotencyKey: sosKeyRef.current,
+        });
         setIsSubmitting(false);
 
         if (res.success) {
+            sosKeyRef.current = null;
             setActiveSosRecord(res.data);
-            setStatusMessage('SOS ACTIVE — Emergency Contacts & Authorities Notified');
-            Alert.alert('SOS Broadcast Sent', 'Your emergency alert and live coordinates have been broadcast.');
-            
-            // Open the existing SMS flow immediately after the backend SOS is created.
-            smsService.sendSOSTriggerSMS(coordinates).then((smsRes) => {
-                if (smsRes.success) {
-                    setToastType('success');
-                    setToastMessage(smsRes.message);
-                } else {
-                    setToastType('error');
-                    setToastMessage(smsRes.message);
-                }
+            setStatusMessage('SOS ACTIVE: Emergency Contacts Notified');
+            Alert.alert('SOS Sent', res.duplicate ? 'An SOS was already in progress.' : 'Your emergency alert and location have been sent.');
+
+            // Also open the on-device SMS composer so contacts can be reached without server SMS.
+            smsService.sendSOSTriggerSMS(location).then((smsRes) => {
+                setToastType(smsRes.success ? 'success' : 'error');
+                setToastMessage(smsRes.message);
             }).catch((err) => {
-                console.error('[SOSScreen] SMS composer error:', err);
                 setToastType('error');
                 setToastMessage(err.message || 'Failed to open SMS composer.');
             });
         } else {
             setStatusMessage('SOS Status: Ready');
             const message = res.error?.message || 'Could not send emergency alert.';
-            setSosError(res.error?.status === 0 ? 'You are offline. Reconnect and retry SOS.' : message);
-            Alert.alert('SOS Error', message);
-        }
-    };
-
-    const handleAutomaticSOSTrigger = async () => {
-        setIsSubmitting(true);
-        setSosError(null);
-        setStatusMessage('Triggering Automatic SOS...');
-
-        const { locationId, journeyId, coordinates } = await prepareSOSData();
-
-        if (!locationId || !journeyId) {
-            setIsSubmitting(false);
-            setStatusMessage('SOS Status: Ready');
-            Alert.alert('SOS Error', 'An active journey and valid location are required for Automatic SOS.');
-            return;
-        }
-
-        const payload = {
-            locationId,
-            journeyId,
-            reason: 'Safety prompt countdown expired without user response.',
-        };
-
-        const res = await sosService.triggerAutomatic(payload);
-        setIsSubmitting(false);
-
-        if (res.success) {
-            setActiveSosRecord(res.data);
-            setStatusMessage('AUTOMATIC SOS ACTIVE');
-
-            // Open the existing SMS flow immediately after the automatic SOS is created.
-            smsService.sendSOSTriggerSMS(coordinates).then((smsRes) => {
-                if (smsRes.success) {
-                    setToastType('success');
-                    setToastMessage(smsRes.message);
-                } else {
-                    setToastType('error');
-                    setToastMessage(smsRes.message);
-                }
-            }).catch((err) => {
-                console.error('[SOSScreen] SMS composer error:', err);
-                setToastType('error');
-                setToastMessage(err.message || 'Failed to open SMS composer.');
-            });
-        } else {
-            setStatusMessage('SOS Status: Ready');
-            const message = res.error?.message || 'Could not send automatic emergency alert.';
-            setSosError(res.error?.status === 0 ? 'You are offline. Reconnect and retry SOS.' : message);
+            setSosError(res.error?.status === 0 ? 'You are offline. Tap SOS again to retry: it will not be sent twice.' : message);
             Alert.alert('SOS Error', message);
         }
     };
@@ -282,7 +189,7 @@ export const SOSScreen = () => {
                     style: 'destructive',
                     onPress: async () => {
                         setIsSubmitting(true);
-                        const res = await sosService.cancel(sosId, 'User cancelled emergency alert from app');
+                        const res = await sosService.cancel(sosId, { reason: 'User cancelled emergency alert from app' });
                         setIsSubmitting(false);
                         if (res.success) {
                             setActiveSosRecord(null);
@@ -411,17 +318,21 @@ export const SOSScreen = () => {
                             <Ionicons name="eye-off" size={18} color={colors.primary} />
                             <Text variant="labelLg" style={styles.cardTitleText}>Shadow Mode</Text>
                         </View>
-                        <Switch
-                            trackColor={{ false: colors['outline-variant'], true: colors.primary }}
-                            thumbColor={colors.white}
-                            onValueChange={setIsShadowMode}
-                            value={isShadowMode}
-                        />
+                        <Text variant="labelLg" style={{ color: activeJourney ? colors.tertiary : colors['on-surface-variant'], fontWeight: 'bold' }}>
+                            {activeJourney ? 'ON' : 'OFF'}
+                        </Text>
                     </View>
 
-                    <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginBottom: spacing.lg }}>
-                        Automatically monitors your journey and triggers SOS if you deviate from the safe route or stop moving for too long.
+                    <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginBottom: spacing.md }}>
+                        {activeJourney
+                            ? `Your journey is monitored by the server. If you have not arrived by ${new Date(activeJourney.expectedArrivalTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, you will be asked "Are you okay?" and your contacts are alerted if you do not answer.`
+                            : 'Start a journey with an expected arrival time to turn Shadow Mode on. The server then checks on you if you do not arrive.'}
                     </Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('LiveJourney')} style={{ marginBottom: spacing.lg }}>
+                        <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>
+                            {activeJourney ? 'View journey' : 'Start a journey'}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
 
                 {/* Cancel Area */}
@@ -435,36 +346,8 @@ export const SOSScreen = () => {
                     </View>
                 )}
                 
-                {/* Test Safety Prompt Modal button */}
-                <TouchableOpacity style={{ padding: 20, alignItems: 'center' }} onPress={() => { setCountdown(60); setShowSafetyModal(true); }}>
-                    <Text color={colors.primary}>Test "Are you safe?" Safety Prompt</Text>
-                </TouchableOpacity>
-
                 <View style={{ height: 100 }} />
             </ScrollView>
-
-            {/* "Are You Safe?" Modal */}
-            <Modal visible={showSafetyModal} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <View style={styles.timerCircle}>
-                            <Text style={styles.timerText}>{countdown}</Text>
-                        </View>
-                        <Text variant="headlineMd" style={{ fontWeight: 'bold', marginBottom: 8 }}>Are You Safe?</Text>
-                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginBottom: 24 }}>
-                            We noticed you stopped moving for a while. Please confirm your status.
-                        </Text>
-
-                        <TouchableOpacity style={styles.safeBtn} onPress={() => setShowSafetyModal(false)}>
-                            <Text variant="headlineSm" color={colors.white} style={{ fontWeight: 'bold' }}>YES, I'M SAFE</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity style={styles.emergencyModalBtn} onPress={handleSOSPress}>
-                            <Text variant="headlineSm" color={colors.white} style={{ fontWeight: 'bold' }}>EMERGENCY</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
 
             {/* Share Sheet */}
             <Modal visible={showShareSheet} transparent animationType="slide">
@@ -483,7 +366,7 @@ export const SOSScreen = () => {
                             </View>
                             <View style={[styles.innerCardRow, { marginTop: 12 }]}>
                                 <Text variant="labelMd" color={colors['on-surface-variant']} style={{ textTransform: 'uppercase' }}>Timestamp</Text>
-                                <Text variant="bodyMd">Just now</Text>
+                                <Text variant="bodyMd">{new Date().toLocaleTimeString()}</Text>
                             </View>
                         </View>
 

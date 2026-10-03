@@ -34,12 +34,8 @@ export const NotificationsScreen = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
+    // The real Expo push token is registered after login by SafetyCheckProvider (services/pushNotifications.js).
     fetchNotifications();
-
-    // Attempt push token registration silently if possible
-    notificationService
-      .registerDeviceToken({ token: 'expo-dummy-device-token' })
-      .catch(() => {});
   }, [fetchNotifications]);
 
   const onRefresh = () => {
@@ -47,22 +43,18 @@ export const NotificationsScreen = ({ navigation }) => {
     fetchNotifications();
   };
 
+  const typeOf = (n) => String(n.type || '').toUpperCase();
+
   const getFilteredNotifications = () => {
     if (activeFilter === 'All') return notifications;
     if (activeFilter === 'SOS Alerts') {
-      return notifications.filter(
-        n => n.type === 'sos' || n.title?.toLowerCase().includes('sos') || n.type === 'alert'
-      );
+      return notifications.filter((n) => ['SOS', 'SAFETY_CHECK', 'GEOFENCE'].includes(typeOf(n)));
     }
     if (activeFilter === 'Travel Updates') {
-      return notifications.filter(
-        n => n.type === 'journey' || n.title?.toLowerCase().includes('journey') || n.title?.toLowerCase().includes('travel')
-      );
+      return notifications.filter((n) => typeOf(n) === 'JOURNEY');
     }
     if (activeFilter === 'System') {
-      return notifications.filter(
-        n => n.type === 'system' || n.type === 'info' || (!n.type && !n.title?.toLowerCase().includes('sos'))
-      );
+      return notifications.filter((n) => !['SOS', 'SAFETY_CHECK', 'GEOFENCE', 'JOURNEY'].includes(typeOf(n)));
     }
     return notifications;
   };

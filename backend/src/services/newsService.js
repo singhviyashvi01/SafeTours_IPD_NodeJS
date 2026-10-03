@@ -1,133 +1,92 @@
 const axios = require('axios');
+const newsCfg = require('../config/news.config');
 const logger = require('../utils/logger');
 const ApiError = require('../utils/apiError');
 
 /**
- * Fetches recent news articles from the configured News API.
- * Uses NEWS_API_URL and NEWSDATA_API_KEY. Supports NewsData.io API format.
- *
- * @param {string} [query='Mumbai'] - The search keyword query.
- * @returns {Promise<Object[]>} A list of normalized and deduplicated news articles.
+ * NewsData.io client. Fetches up to newsCfg.maxPages pages (10 articles each on the free plan) for the
+ * hazard query. If the API rejects the boolean query (400/422) it retries once with the plain
+ * fallback query. Publication times are parsed to ISO UTC (NewsData returns "YYYY-MM-DD HH:mm:ss" in UTC).
+ * Every request has a timeout; failures throw ApiError and the scheduler keeps the previous scores.
  */
-async function fetchNews(query = 'Mumbai') {
-  const apiKey = process.env.NEWSDATA_API_KEY;
-  const apiUrl = process.env.NEWS_API_URL || 'https://newsdata.io/api/1/news';
 
-  if (!apiKey) {
-    logger.error('[newsService] NEWSDATA_API_KEY is not defined in environment variables.');
-    throw new ApiError(500, 'NEWSDATA_API_KEY is not defined in environment variables.');
-  }
-
-  // Construct request parameters dynamically
-  const rawParams = {
-    apikey: apiKey,
-    q: query && typeof query === 'string' ? query.trim() : 'Mumbai',
-    country: 'in',
-    language: 'en',
-    size: 10, // NewsData.io free plan allows up to 10 articles (size > 10 causes HTTP 422 UnsupportedFilter)
-  };
-
-  const params = {};
-  for (const [key, value] of Object.entries(rawParams)) {
-    if (value !== undefined && value !== null && value !== '') {
-      params[key] = value;
-    }
-  }
-
-  // Create masked params for safe logging (hides secret API key)
-  const maskedParams = {
-    ...params,
-    apikey: apiKey ? `${apiKey.substring(0, 5)}***${apiKey.substring(apiKey.length - 4)}` : undefined,
-  };
-
-  logger.info(`[newsService] Requesting news from ${apiUrl}`);
-  logger.info(`[newsService] Request parameters: ${JSON.stringify(maskedParams)}`);
-
-  try {
-    const response = await axios.get(apiUrl, {
-      params,
-      timeout: 10000, // 10s timeout
-    });
-
-    const data = response?.data;
-    let rawArticles = [];
-
-    if (data) {
-      if (Array.isArray(data.results)) {
-        rawArticles = data.results;
-      } else if (Array.isArray(data.articles)) {
-        rawArticles = data.articles;
-      } else if (Array.isArray(data)) {
-        rawArticles = data;
-      }
-    }
-
-    logger.info(`[newsService] Received ${rawArticles.length} raw articles from News API.`);
-
-    const seenTitles = new Set();
-    const normalizedArticles = [];
-
-    for (const article of rawArticles) {
-      if (!article || !article.title) continue;
-
-      const cleanTitle = article.title.trim().toLowerCase();
-      if (seenTitles.has(cleanTitle)) {
-        continue; // Deduplicate duplicate titles
-      }
-      seenTitles.add(cleanTitle);
-
-      const normalized = {
-        title: article.title.trim(),
-        description: article.description || article.content || '',
-        source: article.source_id || article.source?.name || article.source?.id || 'Unknown Source',
-        publishedAt: article.pubDate || article.pub_date || article.publishedAt || new Date().toISOString(),
-      };
-
-      normalizedArticles.push(normalized);
-    }
-
-    logger.info(`[newsService] Normalized to ${normalizedArticles.length} unique articles.`);
-    return normalizedArticles;
-  } catch (error) {
-    logger.error(`[newsService] Failed request to ${apiUrl}`);
-    logger.error(`[newsService] Request parameters (masked): ${JSON.stringify(maskedParams)}`);
-
-    if (error.response) {
-      logger.error(`[newsService] NewsData.io API Error Status: ${error.response.status}`);
-      logger.error(`[newsService] NewsData.io API Response Body: ${JSON.stringify(error.response.data)}`);
-    } else {
-      logger.error(`[newsService] NewsData.io Network/Error Message: ${error.message}`);
-    }
-
-    if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-      throw new ApiError(504, 'NewsData.io request timed out.');
-    }
-
-    const status = error.response?.status;
-    const apiMessage = error.response?.data?.results?.message || error.response?.data?.message || error.message;
-
-    switch (status) {
-      case 400:
-        throw new ApiError(400, `NewsData.io Bad Request: ${apiMessage}`);
-      case 401:
-        throw new ApiError(401, 'NewsData.io Unauthorized: Invalid or missing API key.');
-      case 403:
-        throw new ApiError(403, 'NewsData.io Forbidden: Access limit reached or access denied.');
-      case 404:
-        throw new ApiError(404, 'NewsData.io Not Found: Requested resource or endpoint not found.');
-      case 422:
-        throw new ApiError(422, `NewsData.io Unprocessable Entity: ${apiMessage}`);
-      case 429:
-        throw new ApiError(429, 'NewsData.io Rate Limit Exceeded: Too many requests.');
-      default:
-        if (status >= 500) {
-          throw new ApiError(502, 'NewsData.io service is temporarily unavailable.');
-        }
-        throw new ApiError(status || 500, `News API error: ${apiMessage}`);
-    }
-  }
+function parsePubDate(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s) ? `${s.replace(' ', 'T')}Z` : s;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
-module.exports = {
-  fetchNews,
-};
+async function requestPage(apiUrl, params) {
+  const response = await axios.get(apiUrl, { params, timeout: 10000 });
+  return response.data || {};
+}
+
+function toApiError(error) {
+  if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') return new ApiError(504, 'NewsData.io request timed out.');
+  const status = error.response?.status;
+  const apiMessage = error.response?.data?.results?.message || error.response?.data?.message || error.message;
+  if (status === 401) return new ApiError(401, 'NewsData.io: invalid or missing API key.');
+  if (status === 403) return new ApiError(403, 'NewsData.io: access denied or plan limit reached.');
+  if (status === 429) return new ApiError(429, 'NewsData.io: rate limit exceeded.');
+  if (status >= 500) return new ApiError(502, 'NewsData.io is temporarily unavailable.');
+  return new ApiError(status || 502, `NewsData.io error: ${apiMessage}`);
+}
+
+/** @returns {Promise<Array<{title,description,source,publishedAt}>>} deduplicated by title */
+async function fetchNews() {
+  const apiKey = process.env.NEWSDATA_API_KEY;
+  if (!apiKey) throw new ApiError(503, 'NEWSDATA_API_KEY is not set; news data unavailable.');
+
+  const apiUrl = process.env.NEWS_API_URL || 'https://newsdata.io/api/1/news';
+  let query = process.env.NEWS_QUERY || newsCfg.query;
+  const base = { apikey: apiKey, country: 'in', language: 'en', size: 10 };
+
+  const raw = [];
+  let nextPage = null;
+  let retriedWithFallback = false;
+
+  for (let page = 0; page < newsCfg.maxPages; page += 1) {
+    try {
+      const data = await requestPage(apiUrl, { ...base, q: query, ...(nextPage ? { page: nextPage } : {}) });
+      raw.push(...(Array.isArray(data.results) ? data.results : []));
+      nextPage = data.nextPage || null;
+      if (!nextPage) break;
+    } catch (error) {
+      const status = error.response?.status;
+      if ((status === 400 || status === 422) && !retriedWithFallback && query !== newsCfg.fallbackQuery) {
+        logger.warn(`[newsService] query rejected (HTTP ${status}); retrying with the plain "${newsCfg.fallbackQuery}" query.`);
+        retriedWithFallback = true;
+        query = newsCfg.fallbackQuery;
+        nextPage = null;
+        page -= 1;
+        continue;
+      }
+      if (raw.length > 0) {
+        logger.warn(`[newsService] page ${page + 1} failed (${error.message}); using the ${raw.length} articles already fetched.`);
+        break;
+      }
+      throw toApiError(error);
+    }
+  }
+
+  const seen = new Set();
+  const articles = [];
+  for (const a of raw) {
+    if (!a || !a.title) continue;
+    const key = a.title.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    articles.push({
+      title: a.title.trim(),
+      description: a.description || '',
+      source: a.source_id || a.source_name || 'unknown',
+      publishedAt: parsePubDate(a.pubDate),
+    });
+  }
+  logger.info(`[newsService] fetched ${raw.length} articles, ${articles.length} unique.`);
+  return articles;
+}
+
+module.exports = { fetchNews, parsePubDate };

@@ -46,6 +46,15 @@ const validateStartJourney = [
 ];
 
 // Validation rules for updating a journey's status (e.g., finishing or cancelling a trip)
+const validateUpdateJourney = [
+  body('expectedArrivalTime').optional({ nullable: true }).isISO8601().withMessage('expectedArrivalTime must be ISO 8601.')
+    .custom((v) => { if (new Date(v).getTime() <= Date.now()) throw new Error('expectedArrivalTime must be in the future.'); return true; }),
+  body('currentLocation').optional({ nullable: true }).isObject().withMessage('currentLocation must be {latitude, longitude, accuracy?}.'),
+  body('currentLocation.latitude').if(body('currentLocation').exists({ checkNull: true })).isFloat({ min: -90, max: 90 }).toFloat(),
+  body('currentLocation.longitude').if(body('currentLocation').exists({ checkNull: true })).isFloat({ min: -180, max: 180 }).toFloat(),
+  body('currentLocation.accuracy').optional({ nullable: true }).isFloat({ min: 0 }).toFloat(),
+];
+
 const validateUpdateJourneyStatus = [
   body('status')
     .exists({ checkNull: true }).withMessage('status is required.')
@@ -72,6 +81,7 @@ const validateJourneyRequest = (req, res, next) => {
 
 module.exports = {
   validateStartJourney,
+  validateUpdateJourney,
   validateUpdateJourneyStatus,
   validateJourneyRequest
 };

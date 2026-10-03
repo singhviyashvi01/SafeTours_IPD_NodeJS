@@ -1,100 +1,82 @@
 const mongoose = require('mongoose');
 
+/**
+ * SOSHistory: one record per SOS / safety check.
+ *
+ * Lifecycle
+ *   pending_confirmation  an "Are you safe?" check (geofence or Shadow Mode ETA). confirmBy is the
+ *                         persisted deadline; the server escalates it when the deadline passes, even
+ *                         across a restart (services/sosService.js processDue).
+ *   active                contacts have been notified (user confirmed, deadline passed, or manual SOS)
+ *   cancelled             the user said they are safe / cancelled
+ *   resolved              closed (or auto-closed after sos.activeMaxHours)
+ *
+ * The location is stored INSIDE the record (coords), so an SOS never depends on /location having been
+ * called first. `location` (a Location document id) is optional and only kept for old records.
+ */
 const sosHistorySchema = new mongoose.Schema(
   {
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: [true, 'User reference is required'],
-      index: true,
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: [true, 'User reference is required'], index: true },
+    journey: { type: mongoose.Schema.Types.ObjectId, ref: 'Journey', default: null },
+    location: { type: mongoose.Schema.Types.ObjectId, ref: 'Location', default: null },
+
+    coords: {
+      latitude: { type: Number },
+      longitude: { type: Number },
+      accuracy: { type: Number, default: null },
+      timestamp: { type: Date },
+      approximate: { type: Boolean, default: false }, // true when taken from the journey/last known location
     },
-    journey: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Journey',
-      // Optional — manual or geofence SOS can be triggered outside a journey
-      default: null,
-    },
-    location: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Location',
-      required: [true, 'Location reference is required'],
-    },
+
     type: {
       type: String,
-      enum: {
-        values: ['manual', 'automatic'],
-        message: 'Type must be either "manual" or "automatic"',
-      },
+      enum: { values: ['manual', 'automatic'], message: 'Type must be either "manual" or "automatic"' },
       required: [true, 'SOS type is required'],
     },
-    triggerSource: {
-      type: String,
-      default: 'MANUAL',
-      trim: true,
-      index: true,
-    },
-    dangerZone: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'DangerZone',
-      default: null,
-    },
-    riskLevel: {
-      type: String,
-      default: null,
-    },
+    // MANUAL | GEOFENCE | SHADOW_MODE
+    triggerSource: { type: String, default: 'MANUAL', trim: true, index: true },
+
+    dangerZone: { type: mongoose.Schema.Types.ObjectId, ref: 'GridCell', default: null },
+    riskLevel: { type: String, default: null },
+
     status: {
       type: String,
       enum: {
-        values: ['active', 'cancelled', 'resolved'],
-        message: 'Status must be one of: active, cancelled, resolved',
+        values: ['pending_confirmation', 'active', 'cancelled', 'resolved'],
+        message: 'Status must be one of: pending_confirmation, active, cancelled, resolved',
       },
       default: 'active',
       index: true,
     },
-    triggeredAt: {
-      type: Date,
-      required: true,
-      default: Date.now,
-    },
-    cancelledAt: {
-      type: Date,
-      default: null,
-    },
-    resolvedAt: {
-      type: Date,
-      default: null,
-    },
-    reason: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    notifiedContacts: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'EmergencyContact',
-      },
-    ],
-    metadata: {
-      type: Object,
-      default: {},
-    },
+    confirmBy: { type: Date, default: null }, // deadline of a pending check
+    escalatedAt: { type: Date, default: null },
+    escalatedBy: { type: String, enum: ['user', 'timeout', null], default: null },
+
+    triggeredAt: { type: Date, required: true, default: Date.now },
+    cancelledAt: { type: Date, default: null },
+    cancelledBy: { type: String, default: null },
+    cancelReason: { type: String, default: '' },
+    resolvedAt: { type: Date, default: null },
+    reason: { type: String, trim: true, default: '' },
+
+    // Same key => same SOS. Sent by the client (Idempotency-Key header) or derived by the server.
+    idempotencyKey: { type: String, default: undefined },
+
+    notifiedContacts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'EmergencyContact' }],
+    metadata: { type: Object, default: {} },
   },
-  {
-    // Mongoose automatically manages createdAt and updatedAt
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// Compound index to quickly find a user's active SOS events
 sosHistorySchema.index({ user: 1, status: 1 });
-
-// Index for querying SOS events linked to a specific journey
 sosHistorySchema.index({ journey: 1 });
-
-// Index on triggeredAt for chronological history queries
 sosHistorySchema.index({ triggeredAt: -1 });
+// Deadline poller: pending checks whose confirmBy has passed.
+sosHistorySchema.index({ status: 1, confirmBy: 1 });
+// Retried requests with the same key never create a second record.
+sosHistorySchema.index(
+  { user: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
-const SOSHistory = mongoose.model('SOSHistory', sosHistorySchema);
-
-module.exports = SOSHistory;
+module.exports = mongoose.model('SOSHistory', sosHistorySchema);

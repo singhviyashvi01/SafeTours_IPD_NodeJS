@@ -2,62 +2,50 @@ const sosService = require('../services/sosService');
 const ApiResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
 
-/**
- * POST /api/sos/manual
- * Triggers a manual SOS alert for the authenticated user.
- */
-const triggerManualSOS = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const sosRecord = await sosService.triggerSOS(userId, req.body, 'manual');
+const keyOf = (req) => req.get('Idempotency-Key') || req.body.idempotencyKey || undefined;
 
-  return res.status(201).json(
-    new ApiResponse(201, sosRecord, 'Manual SOS triggered successfully.')
-  );
+// POST /api/sos
+const createSOS = asyncHandler(async (req, res) => {
+  const { location, journeyId, reason } = req.body;
+  const out = await sosService.createManual(req.user._id, { location, journeyId, reason, idempotencyKey: keyOf(req) });
+  const status = out.duplicate || out.escalatedPending ? 200 : 201;
+  const message = out.escalatedPending
+    ? 'Pending safety check escalated to an SOS.'
+    : out.duplicate
+      ? 'An SOS is already in progress; returning it.'
+      : 'SOS sent.';
+  return res.status(status).json({ ...new ApiResponse(status, out.record, message), duplicate: Boolean(out.duplicate) });
 });
 
-/**
- * POST /api/sos/automatic
- * Triggers an automatic SOS alert for the authenticated user (e.g. ETA breach).
- */
-const triggerAutomaticSOS = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const sosRecord = await sosService.triggerSOS(userId, req.body, 'automatic');
-
-  return res.status(201).json(
-    new ApiResponse(201, sosRecord, 'Automatic SOS triggered successfully.')
-  );
+// GET /api/sos/pending
+const getPending = asyncHandler(async (req, res) => {
+  const pending = await sosService.getPending(req.user._id);
+  return res.status(200).json(new ApiResponse(200, pending, pending ? 'Pending safety check.' : 'No pending safety check.'));
 });
 
-/**
- * POST /api/sos/cancel
- * Cancels an active SOS event for the authenticated user.
- */
+// GET /api/sos/active
+const getActive = asyncHandler(async (req, res) => {
+  const active = await sosService.getActive(req.user._id);
+  return res.status(200).json(new ApiResponse(200, active, active ? 'Active SOS.' : 'No active SOS.'));
+});
+
+// POST /api/sos/:id/confirm   ("Send SOS now")
+const confirmSOS = asyncHandler(async (req, res) => {
+  const out = await sosService.confirm(req.user._id, req.params.id);
+  return res.status(200).json(new ApiResponse(200, out.record, 'SOS sent.'));
+});
+
+// POST /api/sos/:id/cancel   ("I'm safe" for a pending check, cancel for an active SOS)
 const cancelSOS = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const { sosId, reason } = req.body;
-  const updatedSOS = await sosService.cancelSOS(userId, sosId, reason);
-
-  return res.status(200).json(
-    new ApiResponse(200, updatedSOS, 'SOS alert cancelled successfully.')
-  );
+  const { reason, extendMinutes } = req.body;
+  const out = await sosService.cancel(req.user._id, req.params.id, { reason, extendMinutes });
+  return res.status(200).json(new ApiResponse(200, out.record, out.alreadyClosed ? 'Already closed.' : 'Cancelled.'));
 });
 
-/**
- * GET /api/sos/history
- * Retrieves the authenticated user's SOS history.
- */
+// GET /api/sos/history
 const getSOSHistory = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-  const history = await sosService.getSOSHistory(userId);
-
-  return res.status(200).json(
-    new ApiResponse(200, history, 'SOS history retrieved successfully.')
-  );
+  const history = await sosService.getSOSHistory(req.user._id);
+  return res.status(200).json(new ApiResponse(200, history, 'SOS history retrieved successfully.'));
 });
 
-module.exports = {
-  triggerManualSOS,
-  triggerAutomaticSOS,
-  cancelSOS,
-  getSOSHistory,
-};
+module.exports = { createSOS, getPending, getActive, confirmSOS, cancelSOS, getSOSHistory };

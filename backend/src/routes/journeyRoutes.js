@@ -15,6 +15,7 @@ const {
 // Import validators
 const {
   validateStartJourney,
+  validateUpdateJourney,
   validateUpdateJourneyStatus,
   validateJourneyRequest
 } = require('../middleware/journeyValidator');
@@ -40,6 +41,8 @@ router.post(
 router.post(
   '/update/:id',
   verifyJWT,
+  validateUpdateJourney,
+  validateJourneyRequest,
   updateJourney
 );
 

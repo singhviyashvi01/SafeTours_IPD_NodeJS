@@ -1,123 +1,41 @@
-const { fetchNearbyPlaces } = require('../services/crowd/geoapify.service');
-const { calculateCrowdScore } = require('../services/crowd/crowdScore.service');
-const h3GridService = require('../services/h3GridService');
-const dangerZoneService = require('../services/dangerZoneService');
-const riskEngine = require('../services/riskEngine');
+const GridCell = require('../models/GridCell');
+const cellRisk = require('../services/risk/cellRisk.service');
+const { evaluate } = require('../services/risk/riskEngine');
+const feedStatus = require('../services/risk/feedStatus.service');
+const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/apiError');
 
 /**
- * Purpose of this controller:
- * Validate incoming requests for the crowd intelligence module, compute H3 index,
- * calculate crowd density score, update the DangerZone MongoDB document using $set,
- * and return front-end ready JSON payloads.
- *
- * Why this exists:
- * Keeps HTTP layer thin while orchestrating H3 conversion, Geoapify places search,
- * crowd scoring, and atomic DangerZone database updates.
+ * GET /api/crowd/score?lat&lng
+ * Crowd component of the cell containing the point, read from the database. There is no external API
+ * call here: places are cached by scheduler/crowdScheduler.js and the score is refreshed hourly.
  */
+const getCrowdScore = asyncHandler(async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new ApiError(400, 'lat must be a number between -90 and 90.');
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) throw new ApiError(400, 'lng must be a number between -180 and 180.');
 
-/**
- * Purpose of this function:
- * Validate coordinates input format and range before processing by service layers.
- * Input:
- * Object containing lat and lng fields.
- * Output:
- * Object with numeric latitude and longitude.
- */
-const validateCoordinates = ({ lat, lng }) => {
-  const latitude = Number(lat);
-  const longitude = Number(lng);
+  const h3Index = cellRisk.toCell(lat, lng);
+  const cell = await GridCell.findOne({ h3Index }).select('components.crowd').lean();
+  const feeds = await feedStatus.getAll();
+  const result = evaluate({ components: { crowd: cell?.components?.crowd }, feeds });
+  const b = result.breakdown.crowd;
+  const meta = cell?.components?.crowd?.meta || {};
 
-  if (!Number.isFinite(latitude)) {
-    throw new ApiError(400, 'Latitude must be a valid number.');
-  }
-
-  if (!Number.isFinite(longitude)) {
-    throw new ApiError(400, 'Longitude must be a valid number.');
-  }
-
-  if (latitude < -90 || latitude > 90) {
-    throw new ApiError(400, 'Latitude must be between -90 and 90.');
-  }
-
-  if (longitude < -180 || longitude > 180) {
-    throw new ApiError(400, 'Longitude must be between -180 and 180.');
-  }
-
-  return { latitude, longitude };
-};
-
-/**
- * Purpose of this function:
- * Handle requests to compute crowd density score for specified coordinates and update DangerZone.
- *
- * What the code is doing:
- * Resolves request coordinates, converts lat/lng to H3 index via Phase 1 H3 Engine,
- * fetches nearby places via Geoapify, calculates crowd score using time/festival logic,
- * and updates ONLY crowdScore inside the existing DangerZone MongoDB document via $set.
- * Why it is required:
- * Implements Phase 3 Crowd Module requirement to map coordinates to H3 index and update DangerZone.
- * Which existing Phase 1 or Phase 2 implementation is being reused:
- * Reuses Phase 1 H3 Engine (h3GridService.latLngToH3) and Phase 2 DangerZone model (dangerZoneService.updateCrowdScore).
- */
-const getCrowdScore = async (req, res, next) => {
-  try {
-    const { lat, lng, radius } = req.query;
-
-    if (lat === undefined || lat === '') {
-      throw new ApiError(400, 'Latitude is required.');
-    }
-    if (lng === undefined || lng === '') {
-      throw new ApiError(400, 'Longitude is required.');
-    }
-
-    const { latitude, longitude } = validateCoordinates({ lat, lng });
-    const searchRadius = radius ? Number(radius) : 1000;
-
-    // What the code is doing: Convert coordinates to H3 index using Phase 1 H3 Engine.
-    // Why it is required: Provides spatial index for crowd intelligence.
-    // Reuses: Phase 1 h3GridService.latLngToH3
-    const h3Index = h3GridService.latLngToH3(latitude, longitude);
-
-    // Fetch places from Geoapify integration
-    const places = await fetchNearbyPlaces(latitude, longitude, searchRadius);
-
-    // Compute crowd intelligence score and breakdown
-    const crowdData = calculateCrowdScore(places);
-
-    // What the code is doing: Update ONLY crowdScore inside existing DangerZone document using $set.
-    // Why it is required: Merge safety; prevents overwriting crime, weather, or infra scores.
-    // Reuses: Phase 2 DangerZone collection & dangerZoneService
-    const updatedDangerZone = await dangerZoneService.updateCrowdScore(
-      latitude,
-      longitude,
-      crowdData.crowdScore,
+  res.status(200).json({
+    success: true,
+    message: b.available ? 'Crowd score retrieved successfully.' : 'No crowd data available for this location yet.',
+    data: {
       h3Index,
-      places.length
-    );
+      crowdScore: b.score, // null when unavailable: never a fake 0
+      status: b.status, // fresh | stale | expired | missing
+      ageMinutes: b.ageMinutes,
+      nearbyPlaceCount: meta.poiCount ?? 0,
+      topPlaces: meta.topPlaces || [],
+      lowConfidence: Boolean(meta.lowConfidence),
+    },
+  });
+});
 
-    await riskEngine.updateGridCellScores(
-      { $or: [{ h3Index }, { h3CellId: h3Index }] },
-      { crowdScore: crowdData.crowdScore }
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: 'Crowd score retrieved and DangerZone updated successfully.',
-      data: {
-        h3Index,
-        crowdScore: crowdData.crowdScore,
-        crowdLevel: crowdData.crowdLevel,
-        nearbyPlaces: crowdData.nearbyPlaces,
-        scoreBreakdown: crowdData.scoreBreakdown,
-        updatedDangerZone,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-module.exports = {
-  getCrowdScore,
-};
+module.exports = { getCrowdScore };

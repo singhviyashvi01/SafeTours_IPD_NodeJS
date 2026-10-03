@@ -1,4 +1,6 @@
 const locationService = require('../services/locationService');
+const journeyService = require('../services/journeyService');
+const logger = require('../utils/logger');
 
 /**
  * Handles incoming requests to sync a new location point.
@@ -12,6 +14,15 @@ const syncLocation = async (req, res) => {
 
     // The controller delegates ALL database logic to the Service Layer
     const savedLocation = await locationService.saveLocation(userId, locationData);
+
+    // Shadow Mode: remember the last known position and detect arrival. Only fresh readings count:
+    // a point replayed from an offline queue says nothing about where the user is now.
+    const ageMs = Date.now() - new Date(locationData.timestamp || Date.now()).getTime();
+    if (ageMs <= 10 * 60 * 1000) {
+      journeyService
+        .checkArrival(userId, { latitude: locationData.latitude, longitude: locationData.longitude, accuracy: locationData.accuracy })
+        .catch((e) => logger.error('[location] arrival check failed', e));
+    }
 
     // Return a 201 Created status for successful resource creation
     return res.status(201).json({

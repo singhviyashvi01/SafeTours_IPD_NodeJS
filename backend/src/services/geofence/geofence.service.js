@@ -1,454 +1,312 @@
 const UserGeofenceState = require('../../models/UserGeofenceState');
 const GeofenceEvent = require('../../models/GeofenceEvent');
-const DangerZone = require('../../models/DangerZone');
-const GridCell = require('../../models/GridCell');
-const h3GridService = require('../h3GridService');
-const dangerZoneService = require('../dangerZoneService');
+const SOSHistory = require('../../models/SOSHistory');
+const Journey = require('../../models/Journey');
+const User = require('../../models/User');
+const cellRisk = require('../risk/cellRisk.service');
 const sosService = require('../sosService');
+const journeyService = require('../journeyService');
+const { initialState, isInside, progressOf } = require('./geofenceStateMachine');
+const { processReadings } = require('./geofenceReplay');
+const { evaluatePrompt } = require('../sos/sosPolicy');
+const cfg = require('../../config/geofence.config');
+const ApiError = require('../../utils/apiError');
 const logger = require('../../utils/logger');
 
 /**
- * Helper: Checks if current risk level meets or exceeds configured SOS trigger threshold.
- * Configurable via process.env.GEOFENCE_SOS_TRIGGER_LEVEL (default: 'HIGH' - triggers on HIGH & EXTREME).
+ * GeofenceService: persistence + orchestration around the pure state machine.
+ *
+ * Risk comes only from the risk engine (services/risk). The dwell / hysteresis counters live in
+ * UserGeofenceState and every write is conditional on lastReadingAt, so a restart loses nothing and two
+ * concurrent requests cannot both advance (or both prompt) from the same state.
+ *
+ * ENTER no longer fires an SOS. It creates a pending "Are you safe?" check (sosService.createSafetyCheck)
+ * that the user can cancel; only the deadline escalates it.
  */
-function shouldTriggerGeofenceSOS(currentRiskLevel) {
-  const triggerLevelSetting = (process.env.GEOFENCE_SOS_TRIGGER_LEVEL || 'HIGH').toUpperCase();
-  const ranks = { SAFE: 0, LOW: 1, MODERATE: 2, HIGH: 3, EXTREME: 4 };
-  const currentRank = ranks[String(currentRiskLevel).toUpperCase()] ?? 0;
-  const triggerRank = ranks[triggerLevelSetting] ?? 3; // Default rank 3 is HIGH
-  return currentRank >= triggerRank;
+
+const toMs = (d) => (d ? new Date(d).getTime() : null);
+const toDate = (ms) => (ms === null || ms === undefined ? null : new Date(ms));
+
+function docToState(doc) {
+  return {
+    phase: doc.phase || 'SAFE',
+    dangerReadings: doc.dangerReadings || 0,
+    dangerSince: toMs(doc.dangerSince),
+    safeReadings: doc.safeReadings || 0,
+    safeSince: toMs(doc.safeSince),
+    lastReadingAt: toMs(doc.lastReadingAt),
+    currentH3: doc.currentH3 || null,
+    lastLevel: doc.lastLevel || null,
+    lastScore: doc.lastScore ?? null,
+    lastEvent: doc.lastEvent || 'NONE',
+    episodePrompted: Boolean(doc.episodePrompted),
+    cooldownCell: doc.cooldownCell || null,
+    cooldownUntil: doc.cooldownUntil || null,
+  };
 }
 
-/**
- * GeofenceService — SafeTours IPD
- *
- * Core Geofencing Detection Engine, Live Monitoring, Offline Synchronization,
- * and Automatic SOS Trigger Integration.
- */
+function stateToFields(state, zoneId) {
+  return {
+    phase: state.phase,
+    dangerReadings: state.dangerReadings,
+    dangerSince: toDate(state.dangerSince),
+    safeReadings: state.safeReadings,
+    safeSince: toDate(state.safeSince),
+    lastReadingAt: toDate(state.lastReadingAt),
+    currentH3: state.currentH3,
+    currentZoneId: zoneId || null,
+    lastLevel: state.lastLevel,
+    lastScore: state.lastScore,
+    insideDangerZone: isInside(state),
+    lastEvent: state.lastEvent,
+    lastChecked: new Date(),
+    episodePrompted: state.episodePrompted,
+  };
+}
+
+async function loadState(userId) {
+  const doc = await UserGeofenceState.findOne({ userId }).lean();
+  return { exists: Boolean(doc), token: doc ? toMs(doc.lastReadingAt) : null, state: doc ? docToState(doc) : initialState() };
+}
+
+/** Conditional write. Returns false when another request changed the state in between. */
+async function saveState(userId, loaded, state, zoneId) {
+  const fields = stateToFields(state, zoneId);
+  if (!loaded.exists) {
+    try {
+      await UserGeofenceState.create({ userId, ...fields });
+      return true;
+    } catch (e) {
+      if (e && e.code === 11000) return false;
+      throw e;
+    }
+  }
+  const updated = await UserGeofenceState.findOneAndUpdate(
+    { userId, lastReadingAt: loaded.token === null ? null : new Date(loaded.token) },
+    { $set: fields }
+  );
+  return Boolean(updated);
+}
+
+const messageFor = (state, stepMessage) => {
+  if (stepMessage) return stepMessage;
+  switch (state.phase) {
+    case 'ENTERING': return 'Confirming you are in a risk area...';
+    case 'IN_DANGER': return `In a ${String(state.lastLevel || 'high').toLowerCase()} risk area`;
+    case 'EXITING': return 'Leaving the risk area...';
+    default: return state.lastLevel === 'UNKNOWN' ? 'Not enough data for this area' : 'No elevated risk here';
+  }
+};
+
 class GeofenceService {
+  async resolveRisk(h3Index, ts) {
+    const r = await cellRisk.getCellRisk(h3Index, { now: new Date(ts) });
+    return { riskLevel: r.riskLevel, totalRisk: r.totalRiskScore, dataConfidence: r.dataConfidence, lowConfidence: r.lowConfidence, cellId: r.cellId };
+  }
+
   /**
-   * Evaluates user location, calculates geofence transitions, logs events,
-   * and automatically triggers an SOS on entry into configured high-risk zones.
-   *
-   * @param {string|Object} userId - User ObjectId or string ID
-   * @param {number} latitude - WGS84 latitude
-   * @param {number} longitude - WGS84 longitude
-   * @returns {Promise<Object>} Detection payload with event, insideDangerZone, riskLevel, zoneId, message, totalRisk
+   * Shared by check and sync. Returns the replay result, the final persisted state and the safety check
+   * (if one was created). Retries once on a concurrent write.
    */
-  async checkGeofence(userId, latitude, longitude) {
-    const lat = Number(latitude);
-    const lng = Number(longitude);
+  async ingest(userId, rawReadings) {
+    const now = new Date();
+    const readings = rawReadings.map((r) => ({
+      h3Index: cellRisk.toCell(r.latitude, r.longitude),
+      timestamp: r.timestamp,
+      accuracy: r.accuracy === undefined || r.accuracy === null ? undefined : Number(r.accuracy),
+      latitude: Number(r.latitude),
+      longitude: Number(r.longitude),
+    }));
 
-    // 1. Convert latitude/longitude to H3 cell (Resolution 9)
-    const currentH3 = h3GridService.latLngToH3(lat, lng, 9);
-    logger.info(`[GeofenceService] Checking geofence for user '${userId}' at [${lat}, ${lng}] (H3: '${currentH3}')`);
+    const cache = new Map();
+    const resolveRisk = async (h3Index, ts) => {
+      const key = `${h3Index}:${Math.floor(ts / 3600000)}`;
+      if (!cache.has(key)) cache.set(key, await this.resolveRisk(h3Index, ts));
+      return cache.get(key);
+    };
 
-    // 2. Dynamic Danger Zone Refresh: Always query MongoDB directly for the latest un-cached DangerZone document
-    let zone = await DangerZone.findOne({ h3Index: currentH3 }).lean();
+    let loaded;
+    let result;
+    let decision = { create: false, reason: 'no-new-readings' };
+    let saved = false;
 
-    if (!zone) {
-      // Fallback A: Check GridCell collection
-      const gridCell = await GridCell.findOne({
-        $or: [{ h3Index: currentH3 }, { h3CellId: currentH3 }],
-      }).lean();
+    for (let attempt = 0; attempt < 2 && !saved; attempt += 1) {
+      loaded = await loadState(userId);
+      result = await processReadings(loaded.state, readings, { resolveRisk, now });
+      if (result.accepted === 0) return { result, loaded, state: loaded.state, decision, safetyCheck: null };
 
-      if (gridCell) {
-        zone = {
-          _id: gridCell._id,
-          h3Index: gridCell.h3Index || gridCell.h3CellId,
-          riskLevel: gridCell.level || 'SAFE',
-          totalRiskScore: gridCell.totalRiskScore || gridCell.totalRisk || 0,
-        };
-      } else {
-        // Fallback B: Spatial query for nearest DangerZone within cell radius (~200m)
-        const nearestZone = await dangerZoneService.getNearestDangerZone(lat, lng);
-        if (nearestZone && nearestZone.distanceInMeters <= 200) {
-          zone = nearestZone;
-        }
-      }
-    }
-
-    // Determine current risk level, total risk score, and danger zone status (HIGH / EXTREME are danger zones)
-    const rawLevel = zone?.riskLevel ? String(zone.riskLevel).toUpperCase() : 'SAFE';
-    const isDangerZone = ['HIGH', 'EXTREME'].includes(rawLevel);
-    const insideDangerZone = isDangerZone;
-    const currentZoneId = zone?._id ? zone._id.toString() : null;
-    const totalRisk = zone?.totalRiskScore ?? zone?.crimeScore ?? 0;
-
-    // 3. Find user's previously known H3 cell & state
-    const previousState = await UserGeofenceState.findOne({ userId });
-    const previousZoneId = previousState?.currentZoneId ? previousState.currentZoneId.toString() : null;
-
-    let event = 'NONE';
-    let message = '';
-
-    if (!previousState || !previousState.currentH3) {
-      // Case 1: First location check
-      event = 'NONE';
-      if (insideDangerZone) {
-        message = `Entering ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`;
-      } else {
-        message = 'Currently in Safe Area';
-      }
-    } else if (previousState.currentH3 === currentH3) {
-      // Case 2: Same H3 cell
-      event = 'NO_CHANGE';
-      message = 'Location cell unchanged';
-    } else {
-      // Case 3: Different H3 cell
-      const wasInside = Boolean(previousState.insideDangerZone);
-
-      if (!wasInside && insideDangerZone) {
-        // SAFE -> HIGH/EXTREME
-        event = 'ENTER';
-        message = `Entering ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`;
-      } else if (wasInside && !insideDangerZone) {
-        // HIGH/EXTREME -> SAFE
-        event = 'EXIT';
-        message = 'Exiting Danger Zone';
-      } else if (wasInside && insideDangerZone) {
-        // HIGH/EXTREME -> HIGH/EXTREME in another cell or zone
-        event = 'ZONE_CHANGED';
-        message = `Changed Danger Zone to ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`;
-      } else {
-        // SAFE -> SAFE (different cell)
-        event = 'NO_CHANGE';
-        message = 'Location changed within Safe Area';
-      }
-    }
-
-    // 4. Store/Update the user's latest H3 cell & state in MongoDB (UserGeofenceState)
-    await UserGeofenceState.findOneAndUpdate(
-      { userId },
-      {
-        $set: {
-          currentH3,
-          currentZoneId: zone?._id || null,
-          insideDangerZone,
-          lastChecked: new Date(),
-          lastEvent: event,
-        },
-      },
-      { upsert: true, returnDocument: 'after', runValidators: true }
-    );
-
-    // 5. Persist event in GeofenceEvent collection ONLY when state changes (ENTER, EXIT, ZONE_CHANGED)
-    // Duplicate prevention: NO_CHANGE and NONE do not produce duplicate GeofenceEvent documents
-    if (['ENTER', 'EXIT', 'ZONE_CHANGED'].includes(event)) {
-      await GeofenceEvent.create({
-        userId,
-        event,
-        zoneId: zone?._id || null,
-        previousZone: previousState?.currentZoneId || null,
-        riskLevel: rawLevel,
-        totalRisk,
-        location: {
-          type: 'Point',
-          coordinates: [lng, lat],
-        },
-        timestamp: new Date(),
+      const user = await User.findById(userId).select('emergencySettings').lean();
+      const open = await SOSHistory.exists({ user: userId, status: { $in: sosService.OPEN } });
+      decision = evaluatePrompt({
+        state: result.state,
+        now,
+        autoSosEnabled: user?.emergencySettings?.autoSOS === true,
+        hasActiveOrPending: Boolean(open),
       });
-
-      logger.info(`[GeofenceService] GeofenceEvent created for user '${userId}': event=${event}, zoneId=${currentZoneId}, previousZone=${previousZoneId}`);
+      const next = decision.markHandled ? { ...result.state, episodePrompted: true } : result.state;
+      saved = await saveState(userId, loaded, next, result.last?.risk?.cellId);
+      if (saved) result.state = next;
     }
+    if (!saved) throw new ApiError(409, 'Another location update was processed at the same time. Please retry.');
 
-    // 6. AUTOMATIC SOS TRIGGER INTEGRATION
-    // Whenever an ENTER or ZONE_CHANGED event into a HIGH or EXTREME risk zone is detected,
-    // automatically trigger an SOS using sosService (with duplicate active SOS prevention).
-    let automaticSOSResult = null;
-    if (['ENTER', 'ZONE_CHANGED'].includes(event) && shouldTriggerGeofenceSOS(rawLevel)) {
+    await this.persistEvents(userId, result.events, readings);
+
+    let safetyCheck = null;
+    if (decision.create) {
+      const last = result.last;
+      const journey = await Journey.findOne({ userId, status: 'ACTIVE' }).select('_id').lean();
       try {
-        automaticSOSResult = await sosService.triggerGeofenceSOS(userId, {
-          latitude: lat,
-          longitude: lng,
-          zoneId: zone?._id || null,
-          riskLevel: rawLevel,
-          reason: `Automatic SOS triggered on geofence ${event} into ${rawLevel} Risk Area`,
-        });
-
-        if (automaticSOSResult.triggered) {
-          logger.info(`[GeofenceService] Automatic SOS successfully created for user '${userId}': SOS ID = ${automaticSOSResult.sos._id}`);
-        } else {
-          logger.info(`[GeofenceService] Automatic SOS creation skipped for user '${userId}': ${automaticSOSResult.reason}`);
-        }
-      } catch (sosErr) {
-        // Requirement 7: Ensure robust error handling so geofence processing continues even if SOS creation fails
-        logger.error(`[GeofenceService] Non-blocking error triggering automatic SOS for user '${userId}':`, sosErr.message);
-      }
-    }
-
-    logger.info(
-      `[GeofenceService] Result for user '${userId}': event=${event}, insideDangerZone=${insideDangerZone}, riskLevel=${rawLevel}, zoneId=${currentZoneId}`
-    );
-
-    return {
-      event,
-      insideDangerZone,
-      riskLevel: rawLevel,
-      totalRisk,
-      zoneId: currentZoneId,
-      previousZone: previousZoneId,
-      message,
-      automaticSOS: automaticSOSResult ? {
-        triggered: automaticSOSResult.triggered,
-        sosId: automaticSOSResult.sos ? automaticSOSResult.sos._id : null,
-        reason: automaticSOSResult.reason || null,
-      } : null,
-    };
-  }
-
-  /**
-   * Offline Batch Processing — Synchronizes multiple stored GPS points chronologically.
-   *
-   * @param {string|Object} userId
-   * @param {Array<{latitude: number, longitude: number, timestamp?: string}>} locations
-   * @returns {Promise<Object>} Summary of processed locations, generated events, and final status
-   */
-  async syncOfflineLocations(userId, locations) {
-    if (!Array.isArray(locations) || locations.length === 0) {
-      throw new Error('Locations array cannot be empty.');
-    }
-
-    // 1. Sort locations chronologically (oldest to newest)
-    const sortedLocations = [...locations].sort((a, b) => {
-      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-      return timeA - timeB;
-    });
-
-    logger.info(`[GeofenceService] Processing batch sync of ${sortedLocations.length} locations for user '${userId}'`);
-
-    // 2. Performance optimization: Pre-map H3 cells and bulk-query DangerZone collection
-    const h3CellMap = new Map();
-    const locationCellPairs = sortedLocations.map((loc) => {
-      const lat = Number(loc.latitude);
-      const lng = Number(loc.longitude);
-      const h3Index = h3GridService.latLngToH3(lat, lng, 9);
-      return { loc, lat, lng, h3Index };
-    });
-
-    const uniqueH3s = Array.from(new Set(locationCellPairs.map((p) => p.h3Index)));
-
-    // Always fetch latest un-cached DangerZone documents directly from MongoDB
-    const matchingZones = await DangerZone.find({ h3Index: { $in: uniqueH3s } }).lean();
-    matchingZones.forEach((z) => h3CellMap.set(z.h3Index, z));
-
-    // Fallback lookup for cells not in DangerZone collection
-    const missingH3s = uniqueH3s.filter((h3) => !h3CellMap.has(h3));
-    if (missingH3s.length > 0) {
-      const gridCells = await GridCell.find({
-        $or: [{ h3Index: { $in: missingH3s } }, { h3CellId: { $in: missingH3s } }],
-      }).lean();
-      gridCells.forEach((gc) => {
-        const cellH3 = gc.h3Index || gc.h3CellId;
-        if (!h3CellMap.has(cellH3)) {
-          h3CellMap.set(cellH3, {
-            _id: gc._id,
-            h3Index: cellH3,
-            riskLevel: gc.level || 'SAFE',
-            totalRiskScore: gc.totalRiskScore || gc.totalRisk || 0,
-          });
-        }
-      });
-    }
-
-    // 3. Process each location chronologically through the geofence engine
-    const generatedEvents = [];
-    let lastResult = null;
-
-    for (const pair of locationCellPairs) {
-      const { loc, lat, lng, h3Index } = pair;
-      let zone = h3CellMap.get(h3Index);
-
-      // Fallback spatial query if not matched by H3 index
-      if (!zone) {
-        const nearestZone = await dangerZoneService.getNearestDangerZone(lat, lng);
-        if (nearestZone && nearestZone.distanceInMeters <= 200) {
-          zone = nearestZone;
-          h3CellMap.set(h3Index, nearestZone);
-        }
-      }
-
-      const rawLevel = zone?.riskLevel ? String(zone.riskLevel).toUpperCase() : 'SAFE';
-      const isDangerZone = ['HIGH', 'EXTREME'].includes(rawLevel);
-      const insideDangerZone = isDangerZone;
-      const currentZoneId = zone?._id ? zone._id.toString() : null;
-      const totalRisk = zone?.totalRiskScore ?? zone?.crimeScore ?? 0;
-      const pointTime = loc.timestamp ? new Date(loc.timestamp) : new Date();
-
-      // Retrieve previous state
-      const previousState = await UserGeofenceState.findOne({ userId });
-      const previousZoneId = previousState?.currentZoneId ? previousState.currentZoneId.toString() : null;
-
-      let event = 'NONE';
-      let message = '';
-
-      if (!previousState || !previousState.currentH3) {
-        event = 'NONE';
-        message = insideDangerZone
-          ? `Entering ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`
-          : 'Currently in Safe Area';
-      } else if (previousState.currentH3 === h3Index) {
-        event = 'NO_CHANGE';
-        message = 'Location cell unchanged';
-      } else {
-        const wasInside = Boolean(previousState.insideDangerZone);
-
-        if (!wasInside && insideDangerZone) {
-          event = 'ENTER';
-          message = `Entering ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`;
-        } else if (wasInside && !insideDangerZone) {
-          event = 'EXIT';
-          message = 'Exiting Danger Zone';
-        } else if (wasInside && insideDangerZone) {
-          event = 'ZONE_CHANGED';
-          message = `Changed Danger Zone to ${rawLevel === 'EXTREME' ? 'Extreme' : 'High'} Risk Area`;
-        } else {
-          event = 'NO_CHANGE';
-          message = 'Location changed within Safe Area';
-        }
-      }
-
-      // Update UserGeofenceState
-      await UserGeofenceState.findOneAndUpdate(
-        { userId },
-        {
-          $set: {
-            currentH3: h3Index,
-            currentZoneId: zone?._id || null,
-            insideDangerZone,
-            lastChecked: pointTime,
-            lastEvent: event,
-          },
-        },
-        { upsert: true, returnDocument: 'after', runValidators: true }
-      );
-
-      // Duplicate prevention: Persist ONLY state change events (ENTER, EXIT, ZONE_CHANGED)
-      if (['ENTER', 'EXIT', 'ZONE_CHANGED'].includes(event)) {
-        const eventDoc = await GeofenceEvent.create({
+        safetyCheck = await sosService.createSafetyCheck(
           userId,
-          event,
-          zoneId: zone?._id || null,
-          previousZone: previousState?.currentZoneId || null,
-          riskLevel: rawLevel,
-          totalRisk,
-          location: {
-            type: 'Point',
-            coordinates: [lng, lat],
+          {
+            trigger: 'GEOFENCE',
+            coords: {
+              latitude: last.reading.latitude,
+              longitude: last.reading.longitude,
+              accuracy: last.reading.accuracy ?? null,
+              timestamp: new Date(last.ts),
+              approximate: false,
+            },
+            journeyId: journey ? journey._id : null,
+            h3Index: last.reading.h3Index,
+            riskLevel: last.risk.riskLevel,
+            zoneId: last.risk.cellId,
+            reason: `Entered a ${String(last.risk.riskLevel).toLowerCase()} risk area`,
+            idempotencyKey: `geofence:${userId}:${last.reading.h3Index}:${result.state.lastReadingAt}`,
           },
-          timestamp: pointTime,
-        });
-
-        generatedEvents.push({
-          eventId: eventDoc._id,
-          event,
-          zoneId: currentZoneId,
-          previousZone: previousZoneId,
-          riskLevel: rawLevel,
-          totalRisk,
-          coordinates: [lng, lat],
-          timestamp: pointTime,
-          message,
-        });
+          now
+        );
+      } catch (error) {
+        // Do not lose the prompt: let the next reading in this episode try again.
+        logger.error(`[Geofence] safety check creation failed for ${userId}`, error);
+        await UserGeofenceState.updateOne({ userId }, { $set: { episodePrompted: false } });
       }
-
-      // AUTOMATIC SOS TRIGGER INTEGRATION DURING BATCH REPLAY
-      if (['ENTER', 'ZONE_CHANGED'].includes(event) && shouldTriggerGeofenceSOS(rawLevel)) {
-        try {
-          await sosService.triggerGeofenceSOS(userId, {
-            latitude: lat,
-            longitude: lng,
-            zoneId: zone?._id || null,
-            riskLevel: rawLevel,
-            reason: `Automatic SOS triggered during batch sync on geofence ${event} into ${rawLevel} Risk Area`,
-          });
-        } catch (sosErr) {
-          logger.error(`[GeofenceService] Non-blocking error triggering automatic SOS during batch sync for user '${userId}':`, sosErr.message);
-        }
-      }
-
-      lastResult = {
-        event,
-        insideDangerZone,
-        riskLevel: rawLevel,
-        totalRisk,
-        currentH3: h3Index,
-        zoneId: currentZoneId,
-        message,
-      };
     }
 
-    logger.info(
-      `[GeofenceService] Batch sync completed for user '${userId}': ${sortedLocations.length} locations processed, ${generatedEvents.length} events generated.`
-    );
-
-    return {
-      processedCount: sortedLocations.length,
-      eventsGenerated: generatedEvents.length,
-      events: generatedEvents,
-      finalState: lastResult,
-    };
+    return { result, loaded, state: result.state, decision, safetyCheck };
   }
 
-  /**
-   * Retrieves current geofence status for a user.
-   *
-   * @param {string|Object} userId
-   * @returns {Promise<Object>} Status object containing current zone, risk, H3 cell, last event, inside zone
-   */
-  async getGeofenceStatus(userId) {
-    const userState = await UserGeofenceState.findOne({ userId })
-      .populate('currentZoneId')
-      .lean();
-
-    if (!userState) {
-      return {
-        currentZone: null,
-        currentRisk: {
-          riskLevel: 'SAFE',
-          totalRisk: 0,
+  async persistEvents(userId, events, readings) {
+    for (const e of events) {
+      const key = `${e.event}:${e.timestamp}:${e.h3Index}`;
+      const reading = readings.find((r) => r.h3Index === e.h3Index) || readings[0];
+      await GeofenceEvent.updateOne(
+        { userId, idempotencyKey: key },
+        {
+          $setOnInsert: {
+            userId,
+            event: e.event,
+            zoneId: e.cellId || null,
+            riskLevel: e.riskLevel,
+            totalRisk: e.totalRisk,
+            location: { type: 'Point', coordinates: [reading.longitude, reading.latitude] },
+            timestamp: new Date(e.timestamp),
+            historical: e.historical,
+            idempotencyKey: key,
+          },
         },
-        currentH3: null,
-        lastEvent: 'NONE',
-        insideZone: false,
-        lastChecked: null,
-      };
+        { upsert: true }
+      );
     }
+  }
 
-    const currentZone = userState.currentZoneId || null;
-    const riskLevel = currentZone?.riskLevel
-      ? String(currentZone.riskLevel).toUpperCase()
-      : userState.insideDangerZone ? 'HIGH' : 'SAFE';
-    const totalRisk = currentZone?.totalRiskScore ?? currentZone?.crimeScore ?? 0;
+  /** One live GPS reading. */
+  async check(userId, { latitude, longitude, accuracy, timestamp }) {
+    const { result, state, safetyCheck, decision } = await this.ingest(userId, [{ latitude, longitude, accuracy, timestamp }]);
+
+    let status = 'OK';
+    if (result.accepted === 0) status = result.skipped.lowAccuracy > 0 ? 'LOW_ACCURACY' : 'STALE_READING';
+
+    const last = result.last;
+
+    // Shadow Mode: the same fresh reading also drives arrival detection (within ~100 m of the destination).
+    if (status === 'OK') {
+      journeyService
+        .checkArrival(userId, { latitude: Number(latitude), longitude: Number(longitude), accuracy })
+        .catch((e) => logger.error('[Geofence] arrival check failed', e));
+    }
+    // Lets the app stop background tracking once no journey is active (e.g. completed on arrival).
+    const journeyActive = Boolean(await Journey.exists({ userId, status: 'ACTIVE' }));
 
     return {
-      currentZone,
-      currentRisk: {
-        riskLevel,
-        totalRisk,
-      },
-      currentH3: userState.currentH3,
-      lastEvent: userState.lastEvent,
-      insideZone: userState.insideDangerZone,
-      lastChecked: userState.lastChecked,
+      status,
+      journeyActive,
+      event: last ? last.event : 'NONE',
+      phase: state.phase,
+      insideDangerZone: isInside(state),
+      riskLevel: state.lastLevel || 'UNKNOWN',
+      totalRisk: state.lastScore ?? null,
+      dataConfidence: last ? last.risk.dataConfidence : null,
+      lowConfidence: last ? last.risk.lowConfidence : null,
+      h3Index: state.currentH3,
+      zoneId: last ? last.risk.cellId : null,
+      message: status === 'LOW_ACCURACY'
+        ? `GPS accuracy is too low (limit ${cfg.accuracyMaxMeters} m); reading ignored`
+        : status === 'STALE_READING'
+          ? 'Reading ignored (duplicate, out of order or future-dated)'
+          : messageFor(state, last && last.message),
+      progress: last ? last.progress : progressOf(state, Date.now(), cfg),
+      accuracyMaxMeters: cfg.accuracyMaxMeters,
+      promptDecision: decision.reason,
+      safetyCheck,
     };
   }
 
   /**
-   * Retrieves full geofence event history for a user.
-   *
-   * @param {string|Object} userId
-   * @returns {Promise<Object[]>} List of historical GeofenceEvent documents
+   * Offline batch: replayed oldest first to rebuild history. Old events are stored as history only;
+   * a safety check is created only if the user is STILL in danger at a fresh last point (< 10 min old).
+   * Re-sending a batch is harmless: points at or before the last processed one are skipped.
    */
-  async getGeofenceHistory(userId) {
-    const history = await GeofenceEvent.find({ userId })
-      .sort({ timestamp: -1 })
-      .populate('zoneId previousZone')
-      .lean();
+  async sync(userId, locations) {
+    if (!Array.isArray(locations) || locations.length === 0) throw new ApiError(400, 'Locations array cannot be empty.');
+    if (locations.length > cfg.syncMaxPoints) throw new ApiError(413, `At most ${cfg.syncMaxPoints} points per sync.`);
 
-    logger.info(`[GeofenceService] Fetched ${history.length} geofence history events for user '${userId}'`);
-    return history;
+    const { result, state, safetyCheck, decision } = await this.ingest(userId, locations);
+    const lastAt = result.last ? result.last.ts : state.lastReadingAt;
+    const lastPointStale = lastAt === null || Date.now() - lastAt > cfg.historicalAfterMinutes * 60000;
+
+    return {
+      received: locations.length,
+      accepted: result.accepted,
+      skipped: result.skipped,
+      eventsGenerated: result.events.length,
+      historicalEvents: result.events.filter((e) => e.historical).length,
+      events: result.events.map((e) => ({ ...e, timestamp: new Date(e.timestamp).toISOString() })),
+      finalState: {
+        phase: state.phase,
+        insideDangerZone: isInside(state),
+        riskLevel: state.lastLevel || 'UNKNOWN',
+        totalRisk: state.lastScore ?? null,
+        h3Index: state.currentH3,
+        lastReadingAt: toDate(state.lastReadingAt),
+      },
+      // When the last point is old the user's current position is unknown: send a live /check next.
+      lastPointStale,
+      promptDecision: decision.reason,
+      safetyCheck,
+    };
+  }
+
+  async getGeofenceStatus(userId) {
+    const doc = await UserGeofenceState.findOne({ userId }).lean();
+    if (!doc || !doc.currentH3) {
+      return { phase: 'SAFE', insideZone: false, currentH3: null, currentRisk: { riskLevel: 'UNKNOWN', totalRisk: null }, lastEvent: 'NONE', lastChecked: null };
+    }
+    // Risk is re-evaluated now: it changes with time of day and data freshness.
+    const live = await this.resolveRisk(doc.currentH3, Date.now());
+    return {
+      phase: doc.phase,
+      insideZone: Boolean(doc.insideDangerZone),
+      currentH3: doc.currentH3,
+      currentRisk: { riskLevel: live.riskLevel, totalRisk: live.totalRisk, dataConfidence: live.dataConfidence },
+      lastEvent: doc.lastEvent,
+      lastChecked: doc.lastChecked,
+      cooldownUntil: doc.cooldownUntil && new Date(doc.cooldownUntil) > new Date() ? doc.cooldownUntil : null,
+    };
+  }
+
+  async getGeofenceHistory(userId) {
+    return GeofenceEvent.find({ userId }).sort({ timestamp: -1 }).limit(200).lean();
   }
 }
 

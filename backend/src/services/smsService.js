@@ -14,7 +14,7 @@ class SMSService {
    * @param {string}  [params.reason]     - Optional trigger reason
    * @returns {Promise<Object>} Summary of SMS dispatch results
    */
-  async sendSOSToSMSContacts({ userId, contacts, locationDoc, type, reason }) {
+  async sendSOSToSMSContacts({ userId, contacts, coords, locationDoc, type, reason, timestamp }) {
     try {
       if (!contacts || contacts.length === 0) {
         logger.warn(`[SMSService] No emergency contacts available to receive automatic SMS for user '${userId}'.`);
@@ -33,17 +33,21 @@ class SMSService {
       }
 
       // Format coordinates into Google Maps URL
-      let lat = 18.9220;
-      let lng = 72.8347;
-      if (locationDoc?.location?.coordinates && Array.isArray(locationDoc.location.coordinates)) {
+      // The location must come from the SOS itself. There is deliberately NO fallback coordinate: an
+      // alert with a wrong place is worse than one that says the location is unavailable.
+      let lat = null;
+      let lng = null;
+      if (coords && Number.isFinite(coords.latitude) && Number.isFinite(coords.longitude)) {
+        lat = coords.latitude;
+        lng = coords.longitude;
+      } else if (locationDoc?.location?.coordinates && Array.isArray(locationDoc.location.coordinates)) {
         lng = locationDoc.location.coordinates[0];
         lat = locationDoc.location.coordinates[1];
       }
-
-      const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
+      const mapsUrl = Number.isFinite(lat) && Number.isFinite(lng) ? `https://maps.google.com/?q=${lat},${lng}` : null;
       const alertTypeUpper = (type || 'MANUAL').toUpperCase();
 
-      const messageBody = `🚨 SafeTours Emergency Alert 🚨\nAn ${alertTypeUpper} SOS alert has been triggered for: ${userName}.\nReason: ${reason || 'Immediate Assistance Required'}\n\nLive Google Maps Location:\n${mapsUrl}`;
+      const messageBody = `🚨 SafeTours Emergency Alert 🚨\nAn ${alertTypeUpper} SOS alert has been triggered for: ${userName}.\nReason: ${reason || 'Immediate Assistance Required'}\n\n${mapsUrl ? `Location (at ${(timestamp ? new Date(timestamp) : new Date()).toISOString()}):\n${mapsUrl}` : 'Location unavailable.'}`;
 
       const phoneNumbers = contacts
         .map(c => c.phone?.trim())

@@ -18,6 +18,11 @@ const startServer = async () => {
 
     console.log("5. MongoDB connected");
 
+    // Crime component: seed/clear DEMO crime data according to USE_DEMO_CRIME_DATA (default off).
+    // Real data comes from `npm run crime:build -- file.csv` and always wins over demo.
+    const { syncDemoCrimeState } = require('./services/crime/crimeDemo.service');
+    await syncDemoCrimeState().catch((err) => console.error('Demo crime sync failed:', err.message));
+
     // Start community incident expiry scheduler background job
     const { startExpiryScheduler } = require('./scheduler/communityExpiryJob');
     startExpiryScheduler();
@@ -26,12 +31,18 @@ const startServer = async () => {
     const { startNewsScheduler } = require('./scheduler/newsScheduler');
     startNewsScheduler();
 
-    // What is happening: Register and launch the Dynamic Risk Update background scheduler.
-    // Why it is required: Automatically refreshes weather, flood, and news risk scores in DangerZone MongoDB documents periodically.
-    // Which existing service is being reused: Reuses dynamicRiskScheduler.js orchestration module.
-    // How it helps frontend integration: Guarantees that DangerZone records returned to the frontend stay up to date asynchronously.
-    const { startDynamicRiskScheduler } = require('./scheduler/dynamicRiskScheduler');
-    startDynamicRiskScheduler();
+    // Safety scheduler: escalates expired "Are you safe?" checks and enforces Shadow Mode ETAs.
+    // Deadlines are persisted in MongoDB, so this resumes correctly after a restart.
+    const { startSafetyScheduler } = require('./scheduler/safetyScheduler');
+    startSafetyScheduler();
+
+    // Crowd producer: Geoapify places cached daily, crowd score recomputed hourly (IST time rules).
+    const { startCrowdScheduler } = require('./scheduler/crowdScheduler');
+    startCrowdScheduler();
+
+    // Weather producer: one OpenWeather request per ~8 km region, written to every cell in it.
+    const { startWeatherScheduler } = require('./scheduler/weatherScheduler');
+    startWeatherScheduler();
 
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

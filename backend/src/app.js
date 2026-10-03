@@ -12,14 +12,14 @@ const emergencyContactRoutes = require('./routes/emergencyContactRoutes');
 const locationRoutes = require('./routes/locationRoutes');
 const journeyRoutes = require('./routes/journeyRoutes');
 const weatherRoutes = require('./routes/weather.routes');
-const environmentRoutes = require('./routes/environment.routes');
 const crowdRoutes = require('./routes/crowd.routes');
-const crimeRoutes = require('./modules/crime/crimeRoutes');
-const dangerZoneRoutes = require('./routes/dangerZone.routes');
 const sosRoutes = require('./routes/sosRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const communityRoutes = require('./routes/community.routes');
 const geofenceRoutes = require('./services/geofence/geofence.routes');
+const riskRoutes = require('./routes/risk.routes');
+const adminRoutes = require('./routes/admin.routes');
+const { verifyJWT } = require('./middleware/authMiddleware');
 
 const { errorMiddleware } = require('./middleware/errorMiddleware');
 
@@ -48,7 +48,7 @@ app.use(
 // ─── Request rate limiting (auth routes get tighter limits) ──────────────────
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: Number(process.env.RATE_LIMIT_MAX) || 600,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, message: 'Too many requests, please try again later.' },
@@ -96,15 +96,13 @@ app.use('/api/sos', sosRoutes);
 
 app.use('/api/notifications', notificationRoutes);
 
-app.use('/api/weather', weatherRoutes);
+// These proxy paid third-party APIs: they require a signed-in user.
+app.use('/api/weather', verifyJWT, weatherRoutes);
 
-app.use('/api/environment', environmentRoutes);
+app.use('/api/crowd', verifyJWT, crowdRoutes);
 
-app.use('/api/crowd', crowdRoutes);
-
-app.use('/api/crime', crimeRoutes);
-
-app.use('/api/danger-zones', dangerZoneRoutes);
+app.use('/api/risk', riskRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/geofence', geofenceRoutes);
 

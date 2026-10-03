@@ -9,7 +9,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "SafeTours needs access to your location to display your position and navigate safely."
+        "NSLocationWhenInUseUsageDescription": "SafeTours uses your location to show your position, warn you about risky areas and check on you during journeys.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "SafeTours can check on your safety while a journey is active, even when the app is in the background."
       }
     },
     "android": {
@@ -22,14 +23,37 @@
       "package": "com.anonymous.frontend",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-audio",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SafeTours can check on your safety while a journey is active, even when the app is in the background.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#B3261E",
+          "defaultChannel": "default",
+          "enableBackgroundRemoteNotifications": true
+        }
+      ]
     ]
   }
 }

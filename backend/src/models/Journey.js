@@ -54,6 +54,12 @@ const journeySchema = new mongoose.Schema({
     type: Date,
     // Set only when status changes to COMPLETED or CANCELLED
   },
+  // The expectedArrivalTime for which an "Are you okay?" check was already created, so the same
+  // ETA is never prompted twice. Extending the ETA makes the journey eligible again.
+  etaPromptedFor: {
+    type: Date,
+    default: null,
+  },
   // Future fields are cleanly isolated in a metadata object
   metadata: {
     route: {
@@ -67,6 +73,10 @@ const journeySchema = new mongoose.Schema({
     },
     riskScore: {
       type: Number, // Scaled 0-100 indicating danger level of the route
+    },
+    arrived: {
+      type: Boolean,
+      default: false // true when completed by arrival detection (within the arrival radius)
     },
     autoSOSTriggered: {
       type: Boolean,

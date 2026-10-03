@@ -1,7 +1,8 @@
 const Incident = require('../../models/Incident');
 const IncidentConfirmation = require('../../models/IncidentConfirmation');
 const FalseIncidentReport = require('../../models/FalseIncidentReport');
-const gridCellService = require('./gridCell.service');
+const { toCell } = require('../risk/cellRisk.service');
+const communityComponent = require('../risk/communityComponent');
 const { incidentCategories } = require('../../config/communityConfig');
 const logger = require('../../utils/logger');
 const ApiError = require('../../utils/apiError');
@@ -21,7 +22,7 @@ class CommunityService {
       }
 
       // 2. Map coordinates to H3 Cell ID
-      const h3CellId = gridCellService.latLngToH3(latitude, longitude, 9);
+      const h3CellId = toCell(latitude, longitude);
 
       // 3. Calculate expiration date
       const expiresAt = new Date(Date.now() + category.expiryHours * 60 * 60 * 1000);
@@ -48,9 +49,9 @@ class CommunityService {
       const savedIncident = await incident.save();
       logger.info(`[CommunityService.report] Incident reported: ${savedIncident._id} type: ${incidentType} in H3 cell: ${h3CellId}`);
 
-      // 5. Recalculate H3 Cell score asynchronously
-      gridCellService.recalculateGridCellScore(h3CellId, latitude, longitude).catch((err) => {
-        logger.error(`[CommunityService.report] Grid cell recalculation failed for cell ${h3CellId}`, err);
+      // 5. Recompute the community component for this cell and its neighbours (async)
+      communityComponent.recomputeAround([h3CellId]).catch((err) => {
+        logger.error(`[CommunityService.report] Community score recalculation failed for cell ${h3CellId}`, err);
       });
 
       return savedIncident;
@@ -130,8 +131,8 @@ class CommunityService {
       logger.info(`[CommunityService.confirm] Incident ${incidentId} confirmed by user ${userId}`);
 
       // 6. Recalculate H3 Cell score
-      gridCellService.recalculateGridCellScore(incident.h3CellId, incident.latitude, incident.longitude).catch((err) => {
-        logger.error(`[CommunityService.confirm] Grid cell recalculation failed for cell ${incident.h3CellId}`, err);
+      communityComponent.recomputeAround([incident.h3CellId]).catch((err) => {
+        logger.error(`[CommunityService.confirm] Community score recalculation failed for cell ${incident.h3CellId}`, err);
       });
 
       return updatedIncident;
@@ -175,8 +176,8 @@ class CommunityService {
       logger.info(`[CommunityService.reportFalse] Incident ${incidentId} flagged as false by user ${userId}. Count: ${updatedIncident.falseReportCount}`);
 
       // 6. Recalculate H3 Cell score
-      gridCellService.recalculateGridCellScore(incident.h3CellId, incident.latitude, incident.longitude).catch((err) => {
-        logger.error(`[CommunityService.reportFalse] Grid cell recalculation failed for cell ${incident.h3CellId}`, err);
+      communityComponent.recomputeAround([incident.h3CellId]).catch((err) => {
+        logger.error(`[CommunityService.reportFalse] Community score recalculation failed for cell ${incident.h3CellId}`, err);
       });
 
       return updatedIncident;

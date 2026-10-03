@@ -1,141 +1,105 @@
+import { geofenceService } from '../services/geofence';
+
 /**
- * Geofence Manager
- * Evaluates current GPS location against Danger Zones to detect zone entry, exit, and transitions.
+ * GeofenceManager: feeds GPS readings to the backend geofence check and re-broadcasts the result.
+ *
+ * Detection (dwell, hysteresis, accuracy cap, cancellable auto-SOS) happens on the SERVER, which also
+ * persists its counters. This class only:
+ *   - drops readings that are too inaccurate (limit is learned from the server, default 50 m)
+ *   - throttles: a reading is sent when the device moved more than 100 m OR 30 s have passed since
+ *     the last one, never on every GPS tick
+ *   - emits 'result' / 'lowAccuracy' / 'error' events for screens
+ * (An on-device H3 check for offline use arrives in the offline phase.)
  */
+
+export const MIN_DISTANCE_METERS = 100;
+export const MIN_INTERVAL_MS = 30 * 1000;
 
 // Haversine formula to compute distance in meters between two lat/lng points
 export const calculateDistanceMeters = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3; // metres
+  const R = 6371e3;
   const φ1 = (lat1 * Math.PI) / 180;
   const φ2 = (lat2 * Math.PI) / 180;
   const Δφ = ((lat2 - lat1) * Math.PI) / 180;
   const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-
-  const a =
-    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return R * c; // Distance in meters
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
 class GeofenceManager {
   constructor() {
-    this.currentZone = null;
-    this.listeners = {
-      onEnterDangerZone: [],
-      onExitDangerZone: [],
-      onDangerZoneChanged: [],
-    };
+    this.maxAccuracy = 50;
+    this.lastSent = null; // { latitude, longitude, at }
+    this.inFlight = false;
+    this.lastResult = null;
+    this.listeners = { result: [], lowAccuracy: [], error: [] };
   }
 
-  /**
-   * Subscribe event listeners
-   */
   on(event, callback) {
-    if (this.listeners[event]) {
-      this.listeners[event].push(callback);
-    }
+    if (this.listeners[event]) this.listeners[event].push(callback);
+    return () => this.off(event, callback);
   }
 
-  /**
-   * Unsubscribe event listeners
-   */
   off(event, callback) {
-    if (this.listeners[event]) {
-      this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
-    }
+    if (this.listeners[event]) this.listeners[event] = this.listeners[event].filter((cb) => cb !== callback);
   }
 
-  /**
-   * Emit event to subscribers
-   */
   emit(event, ...args) {
-    if (this.listeners[event]) {
-      this.listeners[event].forEach(cb => {
-        try {
-          cb(...args);
-        } catch (err) {
-          console.error(`[GeofenceManager] Error in ${event} listener:`, err);
-        }
-      });
-    }
+    (this.listeners[event] || []).forEach((cb) => {
+      try {
+        cb(...args);
+      } catch (err) {
+        console.error(`[GeofenceManager] Error in ${event} listener:`, err);
+      }
+    });
+  }
+
+  shouldSend(coords, nowMs) {
+    if (!this.lastSent) return true;
+    if (nowMs - this.lastSent.at >= MIN_INTERVAL_MS) return true;
+    return (
+      calculateDistanceMeters(this.lastSent.latitude, this.lastSent.longitude, coords.latitude, coords.longitude) >=
+      MIN_DISTANCE_METERS
+    );
   }
 
   /**
-   * Evaluate user location against array of danger zones
+   * @param {{coords:{latitude,longitude,accuracy}, timestamp:number}} location  an expo-location reading
+   * @returns {Promise<{status:string, data?:Object}>}
    */
-  evaluateLocation(coords, dangerZones = []) {
-    if (!coords || !coords.latitude || !coords.longitude || !dangerZones.length) {
-      return {
-        activeZone: this.currentZone,
-        toastMessage: null,
-      };
+  async submit(location) {
+    const c = location?.coords;
+    if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return { status: 'INVALID' };
+
+    if (Number.isFinite(c.accuracy) && c.accuracy > this.maxAccuracy) {
+      this.emit('lowAccuracy', { accuracy: c.accuracy, max: this.maxAccuracy });
+      return { status: 'LOW_ACCURACY' };
     }
 
-    const { latitude, longitude } = coords;
-    let detectedZone = null;
-    let minDistance = Infinity;
+    const now = Date.now();
+    if (!this.shouldSend(c, now)) return { status: 'THROTTLED' };
+    if (this.inFlight) return { status: 'BUSY' };
 
-    // Find if user is inside or immediately adjacent to any danger zone
-    for (const zone of dangerZones) {
-      let zoneLat = null;
-      let zoneLng = null;
-
-      if (zone.location && Array.isArray(zone.location.coordinates)) {
-        zoneLng = zone.location.coordinates[0];
-        zoneLat = zone.location.coordinates[1];
-      } else if (zone.latitude !== undefined && zone.longitude !== undefined) {
-        zoneLat = Number(zone.latitude);
-        zoneLng = Number(zone.longitude);
+    this.inFlight = true;
+    this.lastSent = { latitude: c.latitude, longitude: c.longitude, at: now };
+    try {
+      const res = await geofenceService.check({
+        latitude: c.latitude,
+        longitude: c.longitude,
+        accuracy: c.accuracy ?? undefined,
+        timestamp: new Date(location.timestamp || now).toISOString(),
+      });
+      if (!res.success) {
+        this.emit('error', res.error);
+        return { status: 'ERROR', error: res.error };
       }
-
-      if (zoneLat !== null && zoneLng !== null) {
-        const dist = calculateDistanceMeters(latitude, longitude, zoneLat, zoneLng);
-        const radius = zone.radius || 300; // default 300m radius
-
-        if (dist <= radius && dist < minDistance) {
-          minDistance = dist;
-          detectedZone = { ...zone, distanceInMeters: dist };
-        }
-      }
+      if (Number.isFinite(res.data?.accuracyMaxMeters)) this.maxAccuracy = res.data.accuracyMaxMeters;
+      this.lastResult = res.data;
+      this.emit('result', res.data);
+      return { status: res.data?.status || 'OK', data: res.data };
+    } finally {
+      this.inFlight = false;
     }
-
-    let toastMessage = null;
-    const prevZone = this.currentZone;
-
-    if (!prevZone && detectedZone) {
-      // ENTERED DANGER ZONE
-      this.currentZone = detectedZone;
-      const riskLabel = (detectedZone.riskLevel || 'High Risk').toUpperCase();
-      toastMessage = `Entering ${riskLabel} Area (Zone #${detectedZone.hotspotId || 'Active'})`;
-      
-      this.emit('onEnterDangerZone', detectedZone);
-      this.emit('onDangerZoneChanged', detectedZone, null);
-    } else if (prevZone && !detectedZone) {
-      // EXITED DANGER ZONE
-      this.currentZone = null;
-      toastMessage = 'Leaving Danger Zone — Entering Safe Area';
-      
-      this.emit('onExitDangerZone', prevZone);
-      this.emit('onDangerZoneChanged', null, prevZone);
-    } else if (
-      prevZone &&
-      detectedZone &&
-      (prevZone.hotspotId !== detectedZone.hotspotId || prevZone._id !== detectedZone._id)
-    ) {
-      // TRANSITIONED BETWEEN DANGER ZONES
-      this.currentZone = detectedZone;
-      const riskLabel = (detectedZone.riskLevel || 'High Risk').toUpperCase();
-      toastMessage = `Transitioned to ${riskLabel} Area (Zone #${detectedZone.hotspotId || 'Active'})`;
-      
-      this.emit('onDangerZoneChanged', detectedZone, prevZone);
-    }
-
-    return {
-      activeZone: this.currentZone,
-      toastMessage,
-    };
   }
 }
 

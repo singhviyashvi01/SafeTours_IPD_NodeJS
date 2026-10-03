@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "import:dangerzones": "node src/scripts/importDangerZones.js"
+    "test": "node --test",
+    "migrate:cells": "node src/scripts/migrateGridCells.js",
+    "user:role": "node src/scripts/setUserRole.js",
+    "crime:build": "node src/scripts/buildCrime.js",
+    "validate:risk": "node src/scripts/validateRisk.js"
   },
   "keywords": [],
   "author": "",

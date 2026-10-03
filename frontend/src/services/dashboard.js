@@ -1,22 +1,22 @@
 import { apiClient } from './apiClient';
-import { dangerZoneService } from './dangerZoneService';
+import { riskService } from './riskService';
 
 export const dashboardService = {
-    // Fetch the backend-owned safety values for the device's real location.
-    // This keeps the screen from recreating a crime or risk calculation in the app.
+    // Backend-owned values for the device's real location: the cell's composite risk (with data
+    // confidence) and the current weather. The app never recomputes risk itself.
     getDashboardData: async (latitude, longitude) => {
-        const [crimeResult, weatherResponse] = await Promise.all([
-            dangerZoneService.getCrimeScore(latitude, longitude),
-            apiClient.get('/weather', { params: { lat: latitude, lon: longitude } }),
+        const [riskResult, weatherResponse] = await Promise.all([
+            riskService.getLocationRisk(latitude, longitude),
+            apiClient.get('/weather', { params: { lat: latitude, lon: longitude } }).catch(() => null),
         ]);
 
-        if (!crimeResult.success) {
-            throw new Error(crimeResult.error?.message || 'Could not load the crime score.');
+        if (!riskResult.success) {
+            throw new Error(riskResult.error?.message || 'Could not load the area risk.');
         }
 
         return {
-            crime: crimeResult.data,
-            weather: weatherResponse.data?.data || null,
+            risk: riskResult.data,
+            weather: weatherResponse?.data?.data || null,
         };
     },
 };

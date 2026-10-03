@@ -3,6 +3,7 @@ const DeviceToken = require('../models/DeviceToken');
 const ApiResponse = require('../utils/apiResponse');
 const ApiError = require('../utils/apiError');
 const asyncHandler = require('../utils/asyncHandler');
+const { isExpoPushToken } = require('../services/pushService');
 
 /**
  * GET /api/notifications
@@ -28,6 +29,10 @@ const registerDeviceToken = asyncHandler(async (req, res) => {
 
   if (!token || !platform) {
     throw new ApiError(400, 'Both "token" and "platform" fields are required.');
+  }
+
+  if (!isExpoPushToken(token)) {
+    throw new ApiError(400, 'token must be an Expo push token (ExponentPushToken[...]).');
   }
 
   if (!['android', 'ios'].includes(platform)) {

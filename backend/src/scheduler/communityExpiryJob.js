@@ -1,5 +1,6 @@
 const Incident = require('../models/Incident');
-const gridCellService = require('../services/community/gridCell.service');
+const communityComponent = require('../services/risk/communityComponent');
+const feedStatus = require('../services/risk/feedStatus.service');
 const logger = require('../utils/logger');
 
 /**
@@ -10,43 +11,21 @@ async function checkAndExpireIncidents() {
   try {
     const now = new Date();
 
-    // 1. Find all active incidents that are past their expiry date
-    const expiredIncidents = await Incident.find({
-      status: 'ACTIVE',
-      expiresAt: { $lte: now },
-    });
-
-    if (expiredIncidents.length === 0) {
-      return;
-    }
-
-    const expiredIds = expiredIncidents.map((incident) => incident._id);
-    logger.info(`[communityExpiryJob] Found ${expiredIncidents.length} incidents to expire: [${expiredIds.join(', ')}]`);
-
-    // 2. Mark them as EXPIRED in the database
+    // 1. Mark incidents past their TTL as EXPIRED.
     const result = await Incident.updateMany(
-      { _id: { $in: expiredIds } },
+      { status: 'ACTIVE', expiresAt: { $lte: now } },
       { $set: { status: 'EXPIRED' } }
     );
-
-    logger.info(`[communityExpiryJob] Marked ${result.modifiedCount} incidents as EXPIRED.`);
-
-    // 3. Get unique H3 cell IDs that need their scores updated
-    const uniqueH3Cells = [...new Set(expiredIncidents.map((incident) => incident.h3CellId))];
-    logger.info(`[communityExpiryJob] Recalculating scores for ${uniqueH3Cells.length} affected H3 cells...`);
-
-    // 4. Recalculate grid cell scores for all unique H3 cells
-    for (const h3CellId of uniqueH3Cells) {
-      try {
-        await gridCellService.recalculateGridCellScore(h3CellId);
-      } catch (err) {
-        logger.error(`[communityExpiryJob] Failed to recalculate score for H3 cell ${h3CellId} during expiry check:`, err);
-      }
+    if (result.modifiedCount > 0) {
+      logger.info(`[communityExpiryJob] Marked ${result.modifiedCount} incidents as EXPIRED.`);
     }
 
-    logger.info('[communityExpiryJob] Expiry check and recalculation process completed successfully.');
+    // 2. Recompute every community score (incidents also decay with time, not just on expiry)
+    //    and record the feed heartbeat used by the risk engine.
+    await communityComponent.sweepAll();
   } catch (error) {
-    logger.error('[communityExpiryJob] Error in background incident expiry check:', error);
+    logger.error('[communityExpiryJob] Error in background community sweep:', error);
+    await feedStatus.markFailure('community', error);
   }
 }
 

@@ -1,106 +1,57 @@
 import { apiClient, formatApiError } from './apiClient';
 
 /**
- * Service for interacting with backend SOS emergency endpoints.
+ * SOS API (backend /api/sos).
+ *
+ * Contract
+ *   POST /sos                 create a manual SOS. Body: { location:{latitude,longitude,accuracy?,timestamp?}, journeyId?, reason? }
+ *                             The location travels in the body; /location does not need to be called first.
+ *                             Send an Idempotency-Key (newKey()) and REUSE it when retrying.
+ *   GET  /sos/pending         the "Are you safe?" check waiting for an answer, or null
+ *   POST /sos/:id/confirm     "Send SOS now" for a pending check
+ *   POST /sos/:id/cancel      "I'm safe" for a pending check / cancel an active SOS ({ reason?, extendMinutes? })
+ *   GET  /sos/history, GET /sos/active
  */
+const run = async (request, pick) => {
+  try {
+    const response = await request();
+    return { success: true, data: pick(response.data), message: response.data?.message || '', duplicate: Boolean(response.data?.duplicate) };
+  } catch (error) {
+    return { success: false, data: null, error: formatApiError(error) };
+  }
+};
+
 export const sosService = {
-  /**
-   * Triggers a manual SOS emergency broadcast.
-   * @param {Object} payload - { locationId, journeyId?, reason? }
-   */
-  async triggerManual(payload) {
-    try {
-      const response = await apiClient.post('/sos/manual', payload);
-      return {
-        success: true,
-        data: response.data?.data || response.data || null,
-        message: response.data?.message || 'Manual SOS triggered successfully.',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: formatApiError(error),
-      };
-    }
-  },
+  /** A new idempotency key; generate once per user action and reuse on retries. */
+  newKey: () => `sos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
 
-  /**
-   * Triggers an automatic SOS alert (e.g., ETA breach, route deviation).
-   * @param {Object} payload - { locationId, journeyId, reason? }
-   */
-  async triggerAutomatic(payload) {
-    try {
-      const response = await apiClient.post('/sos/automatic', payload);
-      return {
-        success: true,
-        data: response.data?.data || response.data || null,
-        message: response.data?.message || 'Automatic SOS triggered successfully.',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: formatApiError(error),
-      };
-    }
-  },
+  create: ({ location, journeyId, reason, idempotencyKey }) =>
+    run(
+      () =>
+        apiClient.post(
+          '/sos',
+          { location, ...(journeyId ? { journeyId } : {}), ...(reason ? { reason } : {}) },
+          { headers: { 'Idempotency-Key': idempotencyKey || sosService.newKey() } }
+        ),
+      (d) => d?.data ?? null
+    ),
 
-  /**
-   * Cancels an active SOS alert.
-   * @param {string} sosId
-   * @param {string} reason
-   */
-  async cancel(sosId, reason = 'User cancelled emergency alert') {
-    try {
-      const response = await apiClient.post('/sos/cancel', { sosId, reason });
-      return {
-        success: true,
-        data: response.data?.data || response.data || null,
-        message: response.data?.message || 'SOS alert cancelled successfully.',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: formatApiError(error),
-      };
-    }
-  },
+  getPending: () => run(() => apiClient.get('/sos/pending'), (d) => d?.data ?? null),
 
-  /**
-   * Fetches the user's SOS alert history.
-   */
+  getActive: () => run(() => apiClient.get('/sos/active'), (d) => d?.data ?? null),
+
+  confirm: (id) => run(() => apiClient.post(`/sos/${id}/confirm`), (d) => d?.data ?? null),
+
+  cancel: (id, { reason, extendMinutes } = {}) =>
+    run(() => apiClient.post(`/sos/${id}/cancel`, { ...(reason ? { reason } : {}), ...(extendMinutes ? { extendMinutes } : {}) }), (d) => d?.data ?? null),
+
   async getHistory() {
-    try {
-      const response = await apiClient.get('/sos/history');
-      const items = response.data?.data || response.data || [];
-      return {
-        success: true,
-        data: Array.isArray(items) ? items : [],
-        message: response.data?.message || '',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: [],
-        error: formatApiError(error),
-      };
-    }
+    const res = await run(() => apiClient.get('/sos/history'), (d) => (Array.isArray(d?.data) ? d.data : []));
+    return res.success ? res : { ...res, data: [] };
   },
 
-  /**
-   * Helper alias for listing SOS history items
-   */
   async list() {
     const res = await this.getHistory();
     return res.data || [];
-  },
-
-  /**
-   * Helper alias for triggering manual SOS
-   */
-  async trigger(item) {
-    return this.triggerManual(item);
   },
 };

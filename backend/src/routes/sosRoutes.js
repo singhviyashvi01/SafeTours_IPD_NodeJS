@@ -1,69 +1,18 @@
 const express = require('express');
+const { verifyJWT } = require('../middleware/authMiddleware');
+const { sosGeneral, sosCreate } = require('../middleware/rateLimiters');
+const { validateCreateSOS, validateSosId, validateCancelSOS, validateSOSRequest } = require('../validators/sosValidator');
+const { createSOS, getPending, getActive, confirmSOS, cancelSOS, getSOSHistory } = require('../controllers/sosController');
+
 const router = express.Router();
 
-// Import existing auth middleware
-const { verifyJWT } = require('../middleware/authMiddleware');
+router.use(verifyJWT, sosGeneral);
 
-// Import validators
-const {
-  validateManualSOS,
-  validateAutomaticSOS,
-  validateCancelSOS,
-  validateSOSRequest,
-} = require('../validators/sosValidator');
-
-// Import controller methods
-const {
-  triggerManualSOS,
-  triggerAutomaticSOS,
-  cancelSOS,
-  getSOSHistory,
-} = require('../controllers/sosController');
-
-/**
- * POST /api/sos/manual
- * Triggers a manual SOS alert from the user.
- */
-router.post(
-  '/manual',
-  verifyJWT,
-  validateManualSOS,
-  validateSOSRequest,
-  triggerManualSOS
-);
-
-/**
- * POST /api/sos/automatic
- * Triggers an automatic SOS (e.g., ETA breach or anomaly detection).
- */
-router.post(
-  '/automatic',
-  verifyJWT,
-  validateAutomaticSOS,
-  validateSOSRequest,
-  triggerAutomaticSOS
-);
-
-/**
- * POST /api/sos/cancel
- * Cancels an active SOS event.
- */
-router.post(
-  '/cancel',
-  verifyJWT,
-  validateCancelSOS,
-  validateSOSRequest,
-  cancelSOS
-);
-
-/**
- * GET /api/sos/history
- * Retrieves the authenticated user's SOS history.
- */
-router.get(
-  '/history',
-  verifyJWT,
-  getSOSHistory
-);
+router.post('/', sosCreate, validateCreateSOS, validateSOSRequest, createSOS);
+router.get('/pending', getPending);
+router.get('/active', getActive);
+router.get('/history', getSOSHistory);
+router.post('/:id/confirm', sosCreate, validateSosId, validateSOSRequest, confirmSOS);
+router.post('/:id/cancel', validateCancelSOS, validateSOSRequest, cancelSOS);
 
 module.exports = router;

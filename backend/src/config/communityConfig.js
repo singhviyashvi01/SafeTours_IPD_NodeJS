@@ -63,6 +63,19 @@ const incidentCategories = {
   },
 };
 
+// How incidents turn into a 0-100 community score for an H3 cell (see risk/communityComponent.js).
+// cellScore = 100 * (1 - exp(-rawWeight / saturation)); rawWeight sums the incident weights in the
+// cell plus neighborFactor x those in the six adjacent cells.
+const scoring = {
+  saturation: 60,
+  neighborFactor: 0.5,
+  // An incident counts at 50% until it has this many confirmations, then at 100%.
+  confirmationsForFullWeight: 3,
+  // Each "report as false" removes this share of an incident's weight.
+  falsePenaltyPerReport: 0.25,
+};
+
 module.exports = {
   incidentCategories,
+  scoring,
 };

@@ -7,16 +7,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { MapComponent, getRiskColors } from '../../components/MapComponent';
-import { dangerZoneService } from '../../services/dangerZoneService';
+import { riskService } from '../../services/riskService';
+import { formatScore, confidenceText, dataQualityNote, factorLabel } from '../../utils/riskLevels';
 import { locationService } from '../../services/locationService';
 import { communityService } from '../../services/communityService';
-import { sosService } from '../../services/sos';
-import { journeyService } from '../../services/journeys';
-import { profileService } from '../../services/profile';
 import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
 import { LocationStatusModal } from '../../components/LocationStatusModal';
+import { DemoBadge } from '../../components/DemoBadge';
 import { useSidebar } from '../../context/SidebarContext';
-import { smsService } from '../../services/smsService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -28,22 +26,57 @@ const DEFAULT_REGION = {
     longitudeDelta: 0.03,
 };
 
-// ── Dharavi Hardcoded VERY HIGH Risk Area ───────────────────────────────────
-const DHARAVI_BOUNDS = {
-    minLat: 19.034, maxLat: 19.068,
-    minLng: 72.845, maxLng: 72.880,
+const FACTOR_ICONS = {
+    crime: 'warning-outline',
+    weather: 'cloudy-outline',
+    crowd: 'people-outline',
+    community: 'shield-outline',
+    news: 'newspaper-outline',
 };
-const DHARAVI_RISK_TEMPLATE = {
-    h3Index: '89608b1a64fffff',
-    totalRiskScore: 91,
-    riskLevel: 'EXTREME',
-    breakdown: { crime: 95, weather: 55, news: 80, crowd: 98, community: 85, infra: 90, time: 100 },
-    hotspot: { hotspotId: 'DHARAVI-001', distanceInMeters: 0, crimeTypes: 'Theft, Assault, Harassment', crimeCount: 48, averageCrimeSeverity: 8.9 },
+
+// One chip per risk component. A component without usable data shows "—", never 0.
+const FactorChips = ({ risk }) => {
+    const breakdown = risk?.breakdown || {};
+    const details = risk?.componentDetails || {};
+    const note = dataQualityNote(risk);
+    return (
+        <>
+            {risk?.demo && <DemoBadge style={{ marginBottom: 6 }} />}
+            <View style={styles.factorGrid}>
+                {Object.keys(FACTOR_ICONS).map((key) => (
+                    <View key={key} style={styles.factorChip}>
+                        <Ionicons name={FACTOR_ICONS[key]} size={14} color={colors.primary} />
+                        <Text variant="labelSm" color={colors['on-surface-variant']}>{factorLabel(key)}:</Text>
+                        <Text variant="labelSm" style={{ fontWeight: 'bold' }}>
+                            {formatScore(breakdown[key])}{details[key]?.stale ? ' (old)' : ''}
+                        </Text>
+                    </View>
+                ))}
+                {risk?.modifiers && (
+                    <View style={styles.factorChip}>
+                        <Ionicons name="time-outline" size={14} color={colors.primary} />
+                        <Text variant="labelSm" color={colors['on-surface-variant']}>Time:</Text>
+                        <Text variant="labelSm" style={{ fontWeight: 'bold' }}>
+                            {`${risk.modifiers.time.label} ×${risk.modifiers.combinedMultiplier}`}
+                        </Text>
+                    </View>
+                )}
+                {confidenceText(risk) && (
+                    <View style={styles.factorChip}>
+                        <Ionicons name="analytics-outline" size={14} color={colors.primary} />
+                        <Text variant="labelSm" color={colors['on-surface-variant']}>Data confidence:</Text>
+                        <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{confidenceText(risk)}</Text>
+                    </View>
+                )}
+            </View>
+            {note && (
+                <Text variant="labelSm" color={risk?.lowConfidence ? colors.error : colors['on-surface-variant']} style={{ marginTop: 4 }}>
+                    {note}
+                </Text>
+            )}
+        </>
+    );
 };
-const isDharaviLocation = (lat, lng) =>
-    lat >= DHARAVI_BOUNDS.minLat && lat <= DHARAVI_BOUNDS.maxLat &&
-    lng >= DHARAVI_BOUNDS.minLng && lng <= DHARAVI_BOUNDS.maxLng;
-// ────────────────────────────────────────────────────────────────────────────
 
 export const SafetyMapScreen = ({ route }) => {
     const navigation = useNavigation();
@@ -91,12 +124,12 @@ export const SafetyMapScreen = ({ route }) => {
     // Danger Zone integration states
     const [dangerZones, setDangerZones] = useState([]);
     const [selectedZone, setSelectedZone] = useState(null);
-    const [currentZone, setCurrentZone] = useState(null);
     const [isLoadingDangerZones, setIsLoadingDangerZones] = useState(false);
     const [dangerZoneError, setDangerZoneError] = useState(null);
 
     // Geofencing UI Feedback Toast
     const [geofenceToast, setGeofenceToast] = useState(null);
+    const [geofenceResult, setGeofenceResult] = useState(geofenceManager.lastResult);
 
     // Diagnostics Status Modal State
     const [showStatusModal, setShowStatusModal] = useState(false);
@@ -115,9 +148,6 @@ export const SafetyMapScreen = ({ route }) => {
     const mapRef = useRef(null);
     const locationSubscription = useRef(null);
     const lastSyncedCoords = useRef(null);
-    const automaticSosZoneId = useRef(null);
-    const dangerZonesRef = useRef([]);
-    const autoSosEnabledRef = useRef(false);
     const autocompleteTimerRef2 = autocompleteTimerRef; // alias for clarity in cleanup
 
     // ── Destination Search Handlers ────────────────────────────────────────────
@@ -127,18 +157,7 @@ export const SafetyMapScreen = ({ route }) => {
         setIsDestinationRiskLoading(true);
         setDestinationRiskError(null);
 
-        // Hardcoded Dharavi override — always EXTREME / Very High risk
-        if (isDharaviLocation(latitude, longitude)) {
-            setDestinationRiskData({
-                ...DHARAVI_RISK_TEMPLATE,
-                location: { latitude, longitude },
-                updatedAt: new Date().toISOString(),
-            });
-            setIsDestinationRiskLoading(false);
-            return;
-        }
-
-        const res = await dangerZoneService.getLocationRisk(latitude, longitude);
+        const res = await riskService.getLocationRisk(latitude, longitude);
         if (res.success && res.data) {
             setDestinationRiskData(res.data);
         } else {
@@ -150,7 +169,7 @@ export const SafetyMapScreen = ({ route }) => {
     const fetchCurrentLocationRiskData = async (latitude, longitude) => {
         setIsCurrentRiskLoading(true);
         setCurrentRiskError(null);
-        const res = await dangerZoneService.getLocationRisk(latitude, longitude);
+        const res = await riskService.getLocationRisk(latitude, longitude);
         if (res.success && res.data) {
             setCurrentLocationRiskData(res.data);
         } else {
@@ -311,7 +330,7 @@ export const SafetyMapScreen = ({ route }) => {
             fetchDestinationRiskData(latitude, longitude);
 
             // Fetch nearby danger zones for the destination
-            const riskRes = await dangerZoneService.getNearbyDangerZones(latitude, longitude, 3000);
+            const riskRes = await riskService.getCellsAround(latitude, longitude, 3000, 'HIGH');
             if (riskRes.success) {
                 setDestinationRisk(riskRes.data || []);
             } else {
@@ -389,19 +408,6 @@ export const SafetyMapScreen = ({ route }) => {
         setIsLoadingCommunity(false);
     };
 
-    // Auto SOS is opt-in. This reads the user's existing Person 1 profile setting
-    // and never changes it from the map screen.
-    const loadAutoSosSetting = async () => {
-        try {
-            const profile = await profileService.getProfile();
-            const enabled = Boolean(profile?.emergencySettings?.autoSOS);
-            autoSosEnabledRef.current = enabled;
-        } catch (error) {
-            // A profile read failure must not stop map tracking or trigger SOS unexpectedly.
-            console.warn('Could not read Auto SOS setting:', error);
-        }
-    };
-
     const handleReportIncidentSubmit = async () => {
         if (!incidentDescription || incidentDescription.trim().length < 5) {
             setIncidentMessage('Please enter a description of at least 5 characters.');
@@ -458,10 +464,25 @@ export const SafetyMapScreen = ({ route }) => {
         }
     };
 
+    // Backend geofence results (the app only sends readings; detection happens on the server).
+    useEffect(() => {
+        const off = geofenceManager.on('result', (r) => {
+            setGeofenceResult(r);
+            if (r.event === 'ENTER' || r.event === 'EXIT' || r.event === 'ZONE_CHANGED') {
+                setGeofenceToast(r.message);
+                setTimeout(() => setGeofenceToast(null), 4000);
+            }
+        });
+        const offLow = geofenceManager.on('lowAccuracy', ({ accuracy }) => {
+            setGeofenceToast(`GPS accuracy is low (${Math.round(accuracy)} m): risk alerts paused`);
+            setTimeout(() => setGeofenceToast(null), 3000);
+        });
+        return () => { off(); offLow(); };
+    }, []);
+
     // Initial check/request on mount
     useEffect(() => {
         requestLocationPermission();
-        loadAutoSosSetting();
 
         return () => {
             if (locationSubscription.current) {
@@ -602,27 +623,6 @@ export const SafetyMapScreen = ({ route }) => {
         const isoTime = new Date(location.timestamp || Date.now()).toISOString();
         setLastUpdateTime(isoTime);
 
-        // Geofence check against active danger zones
-        if (dangerZonesRef.current.length > 0) {
-            const { activeZone, toastMessage } = geofenceManager.evaluateLocation(coords, dangerZonesRef.current);
-            if (activeZone) {
-                setCurrentZone(activeZone);
-            }
-            if (toastMessage) {
-                setGeofenceToast(toastMessage);
-                setTimeout(() => setGeofenceToast(null), 4000);
-            }
-
-            // An automatic alert is only considered once per zone entry, and only
-            // when the user explicitly enabled Auto SOS in their existing settings.
-            if (activeZone && toastMessage?.startsWith('Entering')) {
-                triggerAutomaticSosForZone(activeZone, coords);
-            } else if (!activeZone && toastMessage?.startsWith('Leaving')) {
-                // Permit a fresh automatic-SOS decision if the user later re-enters a zone.
-                automaticSosZoneId.current = null;
-            }
-        }
-
         // Send location update to backend if moved significantly (> 20 meters)
         if (
             !lastSyncedCoords.current ||
@@ -645,49 +645,6 @@ export const SafetyMapScreen = ({ route }) => {
         }
     };
 
-    const triggerAutomaticSosForZone = async (zone, coords) => {
-        const zoneId = zone._id || zone.hotspotId || zone.h3Index;
-        if (!autoSosEnabledRef.current || !zoneId || automaticSosZoneId.current === zoneId) return;
-
-        automaticSosZoneId.current = zoneId;
-        const [journeyResult, locationResult] = await Promise.all([
-            journeyService.getActive(),
-            locationService.syncLocation({
-                latitude: coords.latitude,
-                longitude: coords.longitude,
-                accuracy: locationAccuracy,
-            }),
-        ]);
-
-        if (!journeyResult.success || !journeyResult.journey?._id || !locationResult.success || !locationResult.data?._id) {
-            setGeofenceToast('Danger-zone warning: Auto SOS needs an active journey and synced location.');
-            return;
-        }
-
-        const sosResult = await sosService.triggerAutomatic({
-            locationId: locationResult.data._id,
-            journeyId: journeyResult.journey._id,
-            reason: `Entered ${(zone.riskLevel || 'high').toUpperCase()} risk danger zone.`,
-        });
-
-        if (sosResult.success) {
-            setGeofenceToast('Automatic SOS sent. Opening SMS Composer...');
-            smsService.sendSOSTriggerSMS(coords).then((smsRes) => {
-                if (smsRes.success) {
-                    setGeofenceToast('Automatic SOS sent & SMS Composer opened.');
-                } else {
-                    setGeofenceToast(`Automatic SOS sent. SMS Alert status: ${smsRes.message}`);
-                }
-            }).catch((err) => {
-                console.error('[SafetyMapScreen] SMS error:', err);
-                setGeofenceToast('Automatic SOS sent. SMS failed to open.');
-            });
-        } else {
-            setGeofenceToast(sosResult.error?.message || 'Could not send automatic SOS. Open SOS to retry.');
-        }
-        setTimeout(() => setGeofenceToast(null), 5000);
-    };
-
     const loadDangerZones = async (coords = null, isSilent = false) => {
         if (!isSilent) setIsLoadingDangerZones(true);
         setDangerZoneError(null);
@@ -695,31 +652,17 @@ export const SafetyMapScreen = ({ route }) => {
         const lat = coords ? coords.latitude : userLocation?.latitude;
         const lng = coords ? coords.longitude : userLocation?.longitude;
 
-        let res;
-        if (lat && lng) {
-            res = await dangerZoneService.getNearbyDangerZones(lat, lng, 3000);
-        } else {
-            res = await dangerZoneService.getDangerZones();
+        if (!lat || !lng) {
+            if (!isSilent) setIsLoadingDangerZones(false);
+            return;
         }
 
+        const res = await riskService.getCellsAround(lat, lng, 3000, 'LOW');
         if (res.success) {
-            const zones = res.data || [];
-            setDangerZones(zones);
-            dangerZonesRef.current = zones;
-
-            if (zones.length > 0 && lat && lng) {
-                const { activeZone } = geofenceManager.evaluateLocation({ latitude: lat, longitude: lng }, zones);
-                if (activeZone) {
-                    setCurrentZone(activeZone);
-                } else {
-                    setCurrentZone(zones[0]);
-                }
-                if (!selectedZone) {
-                    setSelectedZone(activeZone || zones[0]);
-                }
-            }
+            const cells = res.data || [];
+            setDangerZones(cells);
         } else {
-            setDangerZoneError(res.error?.message || 'Failed to load danger zones');
+            setDangerZoneError(res.error?.message || 'Failed to load risk cells');
         }
 
         if (!isSilent) setIsLoadingDangerZones(false);
@@ -771,52 +714,26 @@ export const SafetyMapScreen = ({ route }) => {
         }
     };
 
-    // Filter danger zones based on search query
-    const filteredDangerZones = searchQuery.trim()
-        ? dangerZones.filter(z => 
-            (z.hotspotId && String(z.hotspotId).includes(searchQuery)) ||
-            (z.riskLevel && z.riskLevel.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (z.crimeTypes && z.crimeTypes.toLowerCase().includes(searchQuery.toLowerCase()))
-          )
-        : dangerZones;
+    // The search box is for destinations, so it does not filter the map cells.
+    const filteredDangerZones = dangerZones;
 
-    const activeZone = selectedZone || currentZone || (dangerZones.length > 0 ? dangerZones[0] : null);
-    const activeRiskColors = activeZone ? getRiskColors(activeZone.riskLevel, activeZone.totalRiskScore ?? activeZone.crimeScore) : getRiskColors('SAFE');
-    const locationChatName = activeZone?.hotspotId ? `Near safety zone #${activeZone.hotspotId}` : 'Your current location';
+    const insideCell = geofenceResult?.insideDangerZone ? dangerZones.find((z) => z.h3Index === geofenceResult.h3Index) : null;
+    const activeZone = selectedZone || insideCell || null;
+    const activeRiskColors = getRiskColors(activeZone?.riskLevel);
+    const locationChatName = 'Your current location';
     // Keep the UI data shaped as location groups so real chat messages can be
     // connected later without adding a new API or changing this layout.
     const locationChatGroups = [{ location: locationChatName, preview: 'Local chat will appear here when community chat data is available.' }];
 
-    // Single Source of Truth Risk Information Helpers (Python Score Engine)
-    const destinationRiskInfo = (() => {
-        if (!destinationRiskData) return null;
-        const score = destinationRiskData.totalRiskScore ?? 0;
-        const level = destinationRiskData.riskLevel || 'LOW';
-        const colors = getRiskColors(level, score);
-        return {
-            score,
-            level,
-            label: colors.label,
-            colors,
-            breakdown: destinationRiskData.breakdown || {},
-            hotspot: destinationRiskData.hotspot || null,
-        };
-    })();
-
-    const currentLocationRiskInfo = (() => {
-        if (!currentLocationRiskData) return null;
-        const score = currentLocationRiskData.totalRiskScore ?? 0;
-        const level = currentLocationRiskData.riskLevel || 'LOW';
-        const colors = getRiskColors(level, score);
-        return {
-            score,
-            level,
-            label: colors.label,
-            colors,
-            breakdown: currentLocationRiskData.breakdown || {},
-            hotspot: currentLocationRiskData.hotspot || null,
-        };
-    })();
+    // Backend risk result -> what the panels render. score is null when the level is UNKNOWN.
+    const buildRiskInfo = (data) => {
+        if (!data) return null;
+        const level = data.riskLevel || 'UNKNOWN';
+        const palette = getRiskColors(level);
+        return { score: data.totalRiskScore, level, label: palette.label, colors: palette, risk: data };
+    };
+    const destinationRiskInfo = buildRiskInfo(destinationRiskData);
+    const currentLocationRiskInfo = buildRiskInfo(currentLocationRiskData);
 
     return (
         <Screen style={styles.container} isSafe={false}>
@@ -834,6 +751,13 @@ export const SafetyMapScreen = ({ route }) => {
                 selectedZone={activeZone}
                 onSelectZone={handleSelectZone}
             />
+
+            {/* Visible whenever any displayed risk includes demo data */}
+            {(currentLocationRiskData?.demo || destinationRiskData?.demo || dangerZones.some((z) => z.demo)) && (
+                <View style={styles.demoBadgeFloating} pointerEvents="none">
+                    <DemoBadge />
+                </View>
+            )}
 
             {/* Top Search & Diagnostics Bar */}
             <View style={styles.topSearchContainer}>
@@ -1139,7 +1063,7 @@ export const SafetyMapScreen = ({ route }) => {
                                             <View style={{ flex: 1 }}>
                                                 <Text variant="labelMd" color={colors['on-surface-variant']}>Calculated Risk</Text>
                                                 <Text variant="headlineSm" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
-                                                    {Math.round(destinationRiskInfo.score)} / 100
+                                                    {formatScore(destinationRiskInfo.score, ' / 100')}
                                                 </Text>
                                                 <Text variant="labelMd" style={{ fontWeight: 'bold', color: destinationRiskInfo.colors.stroke }}>
                                                     {destinationRiskInfo.label}
@@ -1164,62 +1088,26 @@ export const SafetyMapScreen = ({ route }) => {
                                         </View>
                                     </View>
 
-                                    {/* Contributing Factors Breakdown Grid (7 factors from backend score-service) */}
+                                    {/* Contributing factors (backend risk engine) */}
                                     <Text variant="labelLg" style={{ fontWeight: 'bold', marginTop: spacing.sm, marginBottom: spacing.xs, color: colors['on-surface'] }}>
-                                        Contributing Factors Breakdown
+                                        Contributing Factors
                                     </Text>
-                                    <View style={styles.factorGrid}>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="warning-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crime:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.crime ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="cloudy-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Weather:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.weather ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="newspaper-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>News:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.news ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="people-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crowd:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.crowd ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="shield-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Community:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.community ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="business-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Infra:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.infra ?? 0)}</Text>
-                                        </View>
-                                        <View style={styles.factorChip}>
-                                            <Ionicons name="time-outline" size={14} color={colors.primary} />
-                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Time:</Text>
-                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(destinationRiskInfo.breakdown.time ?? 0)}</Text>
-                                        </View>
-                                    </View>
+                                    <FactorChips risk={destinationRiskInfo.risk} />
 
-                                    {/* Nearby Danger Zone Hotspots */}
+                                    {/* High-risk cells near the destination */}
                                     <View style={[styles.detailsContainer, { marginTop: spacing.sm }]}>
                                         <View style={styles.detailRow}>
                                             <Ionicons name="alert-circle-outline" size={15} color={colors['on-surface-variant']} />
-                                            <Text variant="labelMd" color={colors['on-surface-variant']}>Nearby Hotspots:</Text>
+                                            <Text variant="labelMd" color={colors['on-surface-variant']}>High-risk areas nearby:</Text>
                                             <Text variant="labelMd" style={{ fontWeight: 'bold', color: (destinationRisk?.length || 0) > 0 ? colors.error : colors.primary }}>
-                                                {(destinationRisk?.length || 0) > 0 ? `${destinationRisk.length} within 3km` : 'No hotspots within 3km'}
+                                                {(destinationRisk?.length || 0) > 0 ? `${destinationRisk.length} within 3km` : 'None within 3km'}
                                             </Text>
                                         </View>
                                         {destinationRisk && destinationRisk.length > 0 && (
                                             <View style={{ marginTop: 4 }}>
                                                 {destinationRisk.slice(0, 2).map((z, i) => (
                                                     <Text key={i} variant="labelMd" color={colors['on-surface-variant']} style={{ marginLeft: 20 }} numberOfLines={1}>
-                                                        • Hotspot #{z.hotspotId || i+1}: {z.riskLevel || 'High'} risk
+                                                        • Cell …{String(z.h3Index || i + 1).slice(-6)}: {z.riskLevel} ({formatScore(z.totalRiskScore)})
                                                     </Text>
                                                 ))}
                                             </View>
@@ -1310,9 +1198,8 @@ export const SafetyMapScreen = ({ route }) => {
                             <>
                                 {(() => {
                                     const activeColors = currentLocationRiskInfo ? currentLocationRiskInfo.colors : activeRiskColors;
-                                    const displayScore = currentLocationRiskInfo ? currentLocationRiskInfo.score : (activeZone?.totalRiskScore ?? activeZone?.crimeScore ?? 0);
+                                    const displayScore = currentLocationRiskInfo ? currentLocationRiskInfo.score : activeZone?.totalRiskScore;
                                     const displayLevel = currentLocationRiskInfo ? currentLocationRiskInfo.label : (activeZone?.riskLevel || activeRiskColors.label);
-                                    const breakdown = currentLocationRiskInfo?.breakdown || {};
 
                                     return (
                                         <>
@@ -1323,9 +1210,9 @@ export const SafetyMapScreen = ({ route }) => {
                                                         {selectedZone ? "Selected Zone" : "Current Location Risk"}
                                                     </Text>
                                                     <Text variant="headlineMd" style={{ fontWeight: 'bold' }}>
-                                                        {activeZone?.hotspotId
-                                                            ? `Hotspot #${activeZone.hotspotId}`
-                                                            : (currentLocationRiskData?.h3Index ? `Cell ${currentLocationRiskData.h3Index.substring(0, 10)}...` : 'Your Location')}
+                                                        {(selectedZone?.h3Index || currentLocationRiskData?.h3Index)
+                                                            ? `Cell ${(selectedZone?.h3Index || currentLocationRiskData.h3Index).substring(0, 10)}...`
+                                                            : 'Your Location'}
                                                     </Text>
                                                 </View>
 
@@ -1353,7 +1240,7 @@ export const SafetyMapScreen = ({ route }) => {
                                                     <View>
                                                         <Text variant="labelMd" color={colors['on-surface-variant']}>Risk Score</Text>
                                                         <Text variant="headlineSm" style={{ fontWeight: 'bold', color: activeColors.stroke }}>
-                                                            {Math.round(displayScore)} / 100
+                                                            {formatScore(displayScore, ' / 100')}
                                                         </Text>
                                                     </View>
                                                 </View>
@@ -1363,92 +1250,26 @@ export const SafetyMapScreen = ({ route }) => {
                                                         <Ionicons name="stats-chart" size={22} color={colors.primary} />
                                                     </View>
                                                     <View>
-                                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Crime Incidents</Text>
+                                                        <Text variant="labelMd" color={colors['on-surface-variant']}>Data Confidence</Text>
                                                         <Text variant="headlineSm" style={{ fontWeight: 'bold', color: colors.primary }}>
-                                                            {activeZone?.crimeCount ?? 'N/A'}
+                                                            {currentLocationRiskData?.dataConfidence != null
+                                                                ? `${Math.round(currentLocationRiskData.dataConfidence * 100)}%`
+                                                                : 'N/A'}
                                                         </Text>
                                                     </View>
                                                 </View>
                                             </View>
 
-                                            {/* 7-Factor Breakdown */}
+                                            {/* Contributing factors (backend risk engine) */}
                                             {currentLocationRiskInfo && (
                                                 <>
                                                     <Text variant="labelLg" style={{ fontWeight: 'bold', marginTop: spacing.xs, marginBottom: spacing.xs, color: colors['on-surface'] }}>
                                                         Contributing Factors
                                                     </Text>
-                                                    <View style={styles.factorGrid}>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="warning-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crime:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.crime ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="cloudy-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Weather:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.weather ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="newspaper-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>News:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.news ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="people-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Crowd:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.crowd ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="shield-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Community:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.community ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="business-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Infra:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.infra ?? 0)}</Text>
-                                                        </View>
-                                                        <View style={styles.factorChip}>
-                                                            <Ionicons name="time-outline" size={14} color={colors.primary} />
-                                                            <Text variant="labelSm" color={colors['on-surface-variant']}>Time:</Text>
-                                                            <Text variant="labelSm" style={{ fontWeight: 'bold' }}>{Math.round(breakdown.time ?? 0)}</Text>
-                                                        </View>
-                                                    </View>
+                                                    <FactorChips risk={currentLocationRiskInfo.risk} />
                                                 </>
                                             )}
 
-                                            {/* Active Zone Detail Rows */}
-                                            {activeZone && (
-                                                <View style={[styles.detailsContainer, { marginTop: spacing.xs }]}>
-                                                    <View style={styles.detailRow}>
-                                                        <Ionicons name="pricetag" size={16} color={colors['on-surface-variant']} />
-                                                        <Text variant="labelLg" color={colors['on-surface-variant']}>Dominant Types:</Text>
-                                                        <Text variant="labelLg" style={{ fontWeight: 'bold', flex: 1 }} numberOfLines={1}>
-                                                            {activeZone.crimeTypes || 'General Incidents'}
-                                                        </Text>
-                                                    </View>
-
-                                                    {activeZone.averageCrimeSeverity !== undefined && (
-                                                        <View style={styles.detailRow}>
-                                                            <Ionicons name="shield-outline" size={16} color={colors['on-surface-variant']} />
-                                                            <Text variant="labelLg" color={colors['on-surface-variant']}>Avg Severity:</Text>
-                                                            <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
-                                                                {Number(activeZone.averageCrimeSeverity).toFixed(1)} / 10
-                                                            </Text>
-                                                        </View>
-                                                    )}
-
-                                                    {activeZone.distanceInMeters !== undefined && (
-                                                        <View style={styles.detailRow}>
-                                                            <Ionicons name="navigate-outline" size={16} color={colors.primary} />
-                                                            <Text variant="labelLg" color={colors.primary}>Proximity:</Text>
-                                                            <Text variant="labelLg" style={{ fontWeight: 'bold', color: colors.primary }}>
-                                                                {Math.round(activeZone.distanceInMeters)} meters away
-                                                            </Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                            )}
                                         </>
                                     );
                                 })()}
@@ -1481,7 +1302,7 @@ export const SafetyMapScreen = ({ route }) => {
                 userLocation={userLocation}
                 accuracy={locationAccuracy}
                 trackingActive={trackingActive}
-                currentZone={currentZone}
+                currentZone={currentLocationRiskData}
                 permissionStatus={permissionStatus}
                 lastUpdateTime={lastUpdateTime}
                 offlineQueueSize={locationService.getOfflineQueueSize()}
@@ -1671,6 +1492,12 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(217, 194, 183, 0.3)',
         flexShrink: 0,
+    },
+    demoBadgeFloating: {
+        position: 'absolute',
+        top: 118,
+        left: 16,
+        zIndex: 20,
     },
     searchBar: {
         flex: 1,

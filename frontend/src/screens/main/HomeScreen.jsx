@@ -15,6 +15,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useSidebar } from '../../context/SidebarContext';
 import * as Location from 'expo-location';
 import { profileService } from '../../services/profile';
+import { formatScore, confidenceText, dataQualityNote, factorLabel } from '../../utils/riskLevels';
+import { getRiskColors } from '../../components/MapComponent';
+import { DemoBadge } from '../../components/DemoBadge';
 
 const getGreeting = () => {
     const hour = new Date().getHours();
@@ -117,16 +120,33 @@ export const HomeScreen = () => {
                 ) : (
                     <GlassCard style={styles.heroCard}>
                         <View style={styles.heroHeader}>
-                            <Text variant="headlineSm" color={colors['on-surface']}>Crime Score</Text>
-                            <Chip label={data.crime?.riskLevel || 'Unavailable'} variant="info" />
+                            <Text variant="headlineSm" color={colors['on-surface']}>Area Safety</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                                {data.risk?.demo && <DemoBadge />}
+                                <Chip label={getRiskColors(data.risk?.riskLevel).label} variant="info" />
+                            </View>
                         </View>
                         <View style={styles.heroBody}>
                             <View style={styles.scoreCircle}>
-                                <Text style={styles.scoreText}>{data.crime?.crimeScore ?? '—'}</Text>
+                                <Text style={styles.scoreText}>{formatScore(data.risk?.totalRiskScore)}</Text>
+                                {data.risk?.totalRiskScore != null && <Text style={styles.scoreMax}>/100</Text>}
                             </View>
                             <Text variant="bodyMd" color={colors['on-surface-variant']} style={styles.scoreDesc}>
-                                Current risk level: {data.crime?.riskLevel || 'Unavailable'}
+                                {data.risk?.riskLevel === 'UNKNOWN'
+                                    ? 'We do not have enough data for this area yet.'
+                                    : `Current risk level: ${data.risk?.riskLevel}`}
+                                {data.risk?.topFactor ? ` · Main factor: ${factorLabel(data.risk.topFactor)}` : ''}
                             </Text>
+                            {confidenceText(data.risk) && (
+                                <Text variant="labelMd" color={colors['on-surface-variant']}>
+                                    Data confidence: {confidenceText(data.risk)}
+                                </Text>
+                            )}
+                            {dataQualityNote(data.risk) && (
+                                <Text variant="labelMd" color={data.risk?.lowConfidence ? colors.error : colors['on-surface-variant']}>
+                                    {dataQualityNote(data.risk)}
+                                </Text>
+                            )}
                         </View>
                     </GlassCard>
                 )}

@@ -37,12 +37,12 @@ const geofenceEventSchema = new mongoose.Schema(
     },
     zoneId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'DangerZone',
+      ref: 'GridCell',
       default: null,
     },
     previousZone: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'DangerZone',
+      ref: 'GridCell',
       default: null,
     },
     riskLevel: {
@@ -65,6 +65,11 @@ const geofenceEventSchema = new mongoose.Schema(
       default: Date.now,
       index: true,
     },
+    // True for events replayed from an offline batch that were already old when processed.
+    // They are history only and never start an SOS prompt.
+    historical: { type: Boolean, default: false },
+    // userId + event + timestamp + cell: re-sending the same batch never duplicates history.
+    idempotencyKey: { type: String, default: undefined },
   },
   {
     timestamps: true,
@@ -73,5 +78,9 @@ const geofenceEventSchema = new mongoose.Schema(
 
 geofenceEventSchema.index({ location: '2dsphere' });
 geofenceEventSchema.index({ userId: 1, timestamp: -1 });
+geofenceEventSchema.index(
+  { userId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('GeofenceEvent', geofenceEventSchema);

@@ -8,16 +8,16 @@ import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
-import { locationService } from '../../services/locationService';
 import { MapComponent } from '../../components/MapComponent';
-import { dangerZoneService } from '../../services/dangerZoneService';
+import { riskService } from '../../services/riskService';
+import { isDangerLevel } from '../../utils/riskLevels';
+import { startBackgroundGeofence, stopBackgroundGeofence } from '../../utils/backgroundGeofence';
 import { geofenceManager } from '../../utils/geofenceManager';
 
 import { smsService } from '../../services/smsService';
 import { Toast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
-const SAFETY_RESPONSE_SECONDS = 60;
 
 export const LiveJourneyScreen = () => {
     const navigation = useNavigation();
@@ -43,48 +43,22 @@ export const LiveJourneyScreen = () => {
     const [etaHours, setEtaHours] = useState('');
     const [etaMinutes, setEtaMinutes] = useState('');
     const [etaSeconds, setEtaSeconds] = useState('');
-    const [showSafetyPrompt, setShowSafetyPrompt] = useState(false);
-    const [safetyCountdown, setSafetyCountdown] = useState(SAFETY_RESPONSE_SECONDS);
 
     // Live GPS location
     const [userLocation, setUserLocation] = useState(null);
-    const promptedJourneyId = useRef(null);
-    const automaticSosJourneyId = useRef(null);
+    const sosKeyRef = useRef(sosService.newKey()); // reused on retries: one tap can never make two SOS
 
     useEffect(() => {
         loadInitialState();
     }, []);
 
+    // Shadow Mode is enforced by the SERVER: when the ETA passes it asks "Are you okay?" (the global
+    // prompt in SafetyCheckProvider) and alerts your contacts if you do not answer. No client timers here.
+    // Background tracking runs only while a journey is active (it also detects arrival).
     useEffect(() => {
-        if (!activeJourney?.expectedArrivalTime || promptedJourneyId.current === activeJourney._id) return undefined;
-
-        // Use the backend-persisted ETA as the journey safety timer, including after an app restart.
-        const checkSafetyTimer = () => {
-            if (Date.now() >= new Date(activeJourney.expectedArrivalTime).getTime()) {
-                promptedJourneyId.current = activeJourney._id;
-                setSafetyCountdown(SAFETY_RESPONSE_SECONDS);
-                setShowSafetyPrompt(true);
-            }
-        };
-
-        checkSafetyTimer();
-        const interval = setInterval(checkSafetyTimer, 1000);
-        return () => clearInterval(interval);
-    }, [activeJourney]);
-
-    useEffect(() => {
-        if (!showSafetyPrompt || safetyCountdown <= 0) return undefined;
-
-        const interval = setInterval(() => setSafetyCountdown(value => value - 1), 1000);
-        return () => clearInterval(interval);
-    }, [showSafetyPrompt, safetyCountdown]);
-
-    useEffect(() => {
-        if (showSafetyPrompt && safetyCountdown === 0) {
-            setShowSafetyPrompt(false);
-            triggerAutomaticSOS();
-        }
-    }, [showSafetyPrompt, safetyCountdown]);
+        if (activeJourney) startBackgroundGeofence();
+        else stopBackgroundGeofence();
+    }, [activeJourney?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const loadInitialState = async () => {
         setIsLoading(true);
@@ -100,8 +74,8 @@ export const LiveJourneyScreen = () => {
                 };
                 setUserLocation(currentLocation);
 
-                // Reuse Person 2's danger-zone data so the journey map shows current route risks.
-                const zonesResult = await dangerZoneService.getNearbyDangerZones(
+                // Risk cells around the traveller so the journey map shows nearby risks.
+                const zonesResult = await riskService.getCellsAround(
                     currentLocation.latitude,
                     currentLocation.longitude,
                     3000
@@ -110,12 +84,9 @@ export const LiveJourneyScreen = () => {
                     const zones = zonesResult.data || [];
                     setDangerZones(zones);
 
-                    // Reuse the existing geofence evaluator only for a journey warning.
-                    // SOS triggering remains owned by the dedicated SOS flow.
-                    const { activeZone, toastMessage } = geofenceManager.evaluateLocation(currentLocation, zones);
-                    if (activeZone && toastMessage) {
-                        setJourneyWarning(toastMessage);
-                    }
+                    // Journey warning comes from the backend geofence state (dwell + hysteresis applied).
+                    const last = geofenceManager.lastResult;
+                    if (last?.insideDangerZone) setJourneyWarning(last.message);
                 }
             }
 
@@ -177,8 +148,6 @@ export const LiveJourneyScreen = () => {
 
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
-            promptedJourneyId.current = null;
-            automaticSosJourneyId.current = null;
             setShowStartModal(false);
             Alert.alert('Journey Started', res.message || 'Your journey is now being monitored.');
         } else {
@@ -233,7 +202,6 @@ export const LiveJourneyScreen = () => {
 
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
-            promptedJourneyId.current = null;
             Alert.alert('Journey Updated', res.message || 'Your expected arrival time has been updated.');
         } else {
             setErrorMessage(res.error?.message || 'Failed to update journey.');
@@ -241,100 +209,28 @@ export const LiveJourneyScreen = () => {
     };
 
     const handleTriggerSOS = async () => {
-                        const currentLat = userLocation?.latitude;
-                        const currentLng = userLocation?.longitude;
-                        if (!Number.isFinite(currentLat) || !Number.isFinite(currentLng)) {
-                            Alert.alert('SOS Failure', 'Current location is required to trigger SOS.');
-                            return;
-                        }
-
-                        // The SOS API accepts a saved location ID, not raw map coordinates.
-                        const locationResult = await locationService.syncLocation({
-                            latitude: currentLat,
-                            longitude: currentLng,
-                            accuracy: 10,
-                        });
-                        if (!locationResult.success || !locationResult.data?._id) {
-                            Alert.alert('SOS Failure', locationResult.error?.message || 'Could not sync your location for SOS.');
-                            return;
-                        }
-
-                        const res = await sosService.triggerManual({
-                            locationId: locationResult.data._id,
-                            journeyId: activeJourney?._id,
-                            reason: 'SOS triggered during an active journey.',
-                        });
-
-                        if (res.success) {
-                            navigation.navigate('SOS');
-                            // Trigger native SMS composer with emergency contacts
-                            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
-                                if (smsRes.success) {
-                                    setToastType('success');
-                                    setToastMessage(smsRes.message);
-                                } else {
-                                    setToastType('error');
-                                    setToastMessage(smsRes.message);
-                                }
-                            }).catch((err) => {
-                                console.error('[LiveJourneyScreen] SMS composer error:', err);
-                                setToastType('error');
-                                setToastMessage(err.message || 'Failed to open SMS composer.');
-                            });
-                        } else {
-                            Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
-                        }
-    };
-
-    // Trigger the existing automatic SOS endpoint once when the user does not answer the ETA prompt.
-    const triggerAutomaticSOS = async () => {
-        if (!activeJourney?._id || automaticSosJourneyId.current === activeJourney._id) return;
-        if (!userLocation) {
-            Alert.alert('SOS Failure', 'Current location is required to trigger automatic SOS.');
-            return;
-        }
-
-        automaticSosJourneyId.current = activeJourney._id;
-        const locationResult = await locationService.syncLocation({
-            latitude: userLocation.latitude,
-            longitude: userLocation.longitude,
-            accuracy: 10,
+        const res = await sosService.create({
+            location: Number.isFinite(userLocation?.latitude)
+                ? { latitude: userLocation.latitude, longitude: userLocation.longitude, timestamp: new Date().toISOString() }
+                : undefined,
+            journeyId: activeJourney?._id,
+            reason: 'SOS triggered during an active journey.',
+            idempotencyKey: sosKeyRef.current,
         });
-        if (!locationResult.success || !locationResult.data?._id) {
-            automaticSosJourneyId.current = null;
-            Alert.alert('SOS Failure', locationResult.error?.message || 'Could not sync your location for SOS.');
-            return;
-        }
 
-        const result = await sosService.triggerAutomatic({
-            locationId: locationResult.data._id,
-            journeyId: activeJourney._id,
-            reason: 'Journey safety timer expired without a response.',
-        });
-        if (result.success) {
-            smsService.sendSOSTriggerSMS(userLocation);
+        if (res.success) {
+            sosKeyRef.current = sosService.newKey();
             navigation.navigate('SOS');
+            // Trigger native SMS composer with emergency contacts
+            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
+                setToastType(smsRes.success ? 'success' : 'error');
+                setToastMessage(smsRes.message);
+            }).catch((err) => {
+                setToastType('error');
+                setToastMessage(err.message || 'Failed to open SMS composer.');
+            });
         } else {
-            automaticSosJourneyId.current = null;
-            Alert.alert('SOS Failure', result.error?.message || 'Could not trigger automatic SOS.');
-        }
-    };
-
-    // Restart the backend ETA timer from the same duration after the traveler confirms they are okay.
-    const handleSafetyCheckIn = async () => {
-        const originalDuration = new Date(activeJourney.expectedArrivalTime).getTime()
-            - new Date(activeJourney.startTime).getTime();
-        if (!Number.isFinite(originalDuration) || originalDuration <= 0) return;
-
-        const result = await journeyService.update(activeJourney._id, {
-            expectedArrivalTime: new Date(Date.now() + originalDuration).toISOString(),
-        });
-        if (result.success && result.journey) {
-            promptedJourneyId.current = null;
-            setActiveJourney(result.journey);
-            setShowSafetyPrompt(false);
-        } else {
-            setErrorMessage(result.error?.message || 'Could not restart the journey safety timer.');
+            Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
         }
     };
 
@@ -573,22 +469,6 @@ export const LiveJourneyScreen = () => {
                 </View>
             </Modal>
 
-            <Modal visible={showSafetyPrompt} transparent animationType="fade">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text variant="headlineMd" style={{ fontWeight: 'bold', marginBottom: 8 }}>Are you okay?</Text>
-                        <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginBottom: 16 }}>
-                            Please respond within {safetyCountdown} seconds to avoid an automatic SOS.
-                        </Text>
-                        <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleSafetyCheckIn}>
-                            <Text variant="labelLg" color={colors.white} style={{ fontWeight: 'bold' }}>YES, I'M OK</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowSafetyPrompt(false)}>
-                            <Text variant="labelLg" color={colors.primary} style={{ fontWeight: 'bold' }}>NOT NOW</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
         </Screen>
     );
 };

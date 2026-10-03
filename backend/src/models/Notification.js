@@ -11,8 +11,8 @@ const notificationSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: {
-        values: ['SOS', 'WEATHER', 'JOURNEY', 'AI'],
-        message: 'Type must be one of: SOS, WEATHER, JOURNEY, AI',
+        values: ['SOS', 'SAFETY_CHECK', 'GEOFENCE', 'WEATHER', 'JOURNEY', 'AI'],
+        message: 'Type must be one of: SOS, SAFETY_CHECK, GEOFENCE, WEATHER, JOURNEY, AI',
       },
       required: [true, 'Notification type is required'],
       index: true,

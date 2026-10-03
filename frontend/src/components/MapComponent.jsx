@@ -12,52 +12,22 @@ if (Platform.OS !== 'web') {
     Polygon = Maps.Polygon;
 }
 
+const PALETTE = {
+    SAFE: { fill: 'rgba(34, 197, 94, 0.3)', stroke: '#15803d', solid: '#22c55e', label: 'Safe' },
+    LOW: { fill: 'rgba(250, 204, 21, 0.35)', stroke: '#ca8a04', solid: '#facc15', label: 'Low Risk' },
+    MODERATE: { fill: 'rgba(249, 115, 22, 0.4)', stroke: '#c2410c', solid: '#f97316', label: 'Moderate Risk' },
+    HIGH: { fill: 'rgba(225, 29, 72, 0.45)', stroke: '#be123c', solid: colors.error || '#e11d48', label: 'High Risk' },
+    EXTREME: { fill: 'rgba(186, 26, 26, 0.55)', stroke: '#7f1d1d', solid: '#991b1b', label: 'Extreme Risk' },
+    UNKNOWN: { fill: 'rgba(148, 163, 184, 0.25)', stroke: '#64748b', solid: '#94a3b8', label: 'Not enough data' },
+};
+
 /**
- * Helper to determine risk colors based on zone riskLevel or crimeScore
+ * Colours for a backend risk level (SAFE | LOW | MODERATE | HIGH | EXTREME | UNKNOWN).
+ * A missing/unrecognised level is UNKNOWN, never SAFE.
  */
-export const getRiskColors = (riskLevel, score = 0) => {
-    const levelUpper = (riskLevel || '').toUpperCase();
-    const numericScore = Number(score) || 0;
-    
-    if (levelUpper === 'SAFE' || levelUpper === 'GREEN' || (numericScore > 0 && numericScore < 20)) {
-        return {
-            fill: 'rgba(34, 197, 94, 0.3)',
-            stroke: '#15803d',
-            solid: '#22c55e',
-            label: 'Safe',
-        };
-    }
-    if (levelUpper === 'LOW' || levelUpper === 'YELLOW' || (numericScore >= 20 && numericScore < 40)) {
-        return {
-            fill: 'rgba(250, 204, 21, 0.35)',
-            stroke: '#ca8a04',
-            solid: '#facc15',
-            label: 'Low Risk',
-        };
-    }
-    if (levelUpper === 'MODERATE' || levelUpper === 'MEDIUM' || levelUpper === 'ORANGE' || (numericScore >= 40 && numericScore < 60)) {
-        return {
-            fill: 'rgba(249, 115, 22, 0.4)',
-            stroke: '#c2410c',
-            solid: '#f97316',
-            label: 'Moderate Risk',
-        };
-    }
-    if (levelUpper === 'VERY HIGH' || levelUpper === 'EXTREME' || numericScore >= 80) {
-        return {
-            fill: 'rgba(186, 26, 26, 0.55)',
-            stroke: '#7f1d1d',
-            solid: '#991b1b',
-            label: 'Very High Risk',
-        };
-    }
-    // HIGH or RED
-    return {
-        fill: 'rgba(225, 29, 72, 0.45)',
-        stroke: '#be123c',
-        solid: colors.error || '#e11d48',
-        label: 'High Risk',
-    };
+export const getRiskColors = (riskLevel) => {
+    const level = String(riskLevel || '').toUpperCase();
+    return PALETTE[level] || PALETTE.UNKNOWN;
 };
 
 export const MapComponent = forwardRef(({
@@ -83,13 +53,13 @@ export const MapComponent = forwardRef(({
                     Interactive Safety Map
                 </Text>
                 <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ textAlign: 'center', marginBottom: 16 }}>
-                    Rendering {dangerZones.length} active danger zones around your region.
+                    Rendering {dangerZones.length} risk cells around your region.
                 </Text>
 
                 {/* Render Zone Cards on Web */}
                 <View style={styles.webZonesContainer}>
                     {dangerZones.map((zone, idx) => {
-                        const riskColors = getRiskColors(zone.riskLevel, zone.totalRiskScore ?? zone.crimeScore);
+                        const riskColors = getRiskColors(zone.riskLevel);
                         const isSelected = selectedZone && (selectedZone.hotspotId === zone.hotspotId || selectedZone._id === zone._id);
                         return (
                             <TouchableOpacity
@@ -102,7 +72,7 @@ export const MapComponent = forwardRef(({
                             >
                                 <View style={[styles.markerDot, { backgroundColor: riskColors.solid }]} />
                                 <Text variant="labelLg" style={{ fontWeight: 'bold', color: riskColors.stroke }}>
-                                    Zone #{zone.hotspotId || idx + 1} ({zone.riskLevel || 'ACTIVE'})
+                                    Cell {String(zone.h3Index || idx + 1).slice(-6)} ({zone.riskLevel || 'UNKNOWN'})
                                 </Text>
                             </TouchableOpacity>
                         );
@@ -133,8 +103,7 @@ export const MapComponent = forwardRef(({
                     selectedZone.h3Index === zone.h3Index
                 );
 
-                const riskScore = zone.totalRiskScore ?? zone.crimeScore ?? 0;
-                const riskColors = getRiskColors(zone.riskLevel, riskScore);
+                const riskColors = getRiskColors(zone.riskLevel);
 
                 let latitude = null;
                 let longitude = null;
@@ -160,7 +129,7 @@ export const MapComponent = forwardRef(({
                     return { latitude: pt.latitude || pt.lat, longitude: pt.longitude || pt.lng };
                 }) : null;
 
-                const circleRadius = zone.radius || Math.max(150, Math.min(600, (riskScore * 5) + 100));
+                const circleRadius = zone.radius || 200;
 
                 return (
                     <React.Fragment key={zoneId}>

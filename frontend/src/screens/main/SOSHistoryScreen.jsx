@@ -50,12 +50,15 @@ export const SOSHistoryScreen = ({ navigation }) => {
       ) : (
         <ScrollView contentContainerStyle={styles.content}>
           {items.map((item, index) => {
-            const status = (item.status || 'ACTIVE').toUpperCase();
+            const status = (item.status || 'active').replace(/_/g, ' ').toUpperCase();
             const dateStr = item.createdAt || item.triggeredAt || item.timestamp;
             const timeFormatted = dateStr ? new Date(dateStr).toLocaleString() : 'Recent';
             
             let coordsStr = 'Location Captured';
-            const coords = item.location?.location?.coordinates || item.location?.coordinates;
+            // New records keep the location inside the SOS (coords); old ones reference a Location document.
+            const coords = item.coords && Number.isFinite(item.coords.longitude)
+              ? [item.coords.longitude, item.coords.latitude]
+              : item.location?.location?.coordinates || item.location?.coordinates;
             if (Array.isArray(coords) && coords.length >= 2) {
               coordsStr = `${Number(coords[1]).toFixed(4)}° N, ${Number(coords[0]).toFixed(4)}° E`;
             }
@@ -68,7 +71,7 @@ export const SOSHistoryScreen = ({ navigation }) => {
                     SOS Event ({status})
                   </Text>
                   <Text color={colors['on-surface-variant']}>
-                    Type: {item.triggerType || item.type || 'Manual'}
+                    Trigger: {({ MANUAL: 'Manual', GEOFENCE: 'Risk area', SHADOW_MODE: 'Shadow Mode' })[item.triggerSource] || item.type || 'Manual'}
                   </Text>
                   <Text variant="labelMd" color={colors.outline}>
                     {coordsStr} • {timeFormatted}
