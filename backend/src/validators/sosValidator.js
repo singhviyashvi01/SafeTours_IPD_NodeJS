@@ -15,6 +15,15 @@ const validateCreateSOS = [
   body('journeyId').optional({ checkFalsy: true, nullable: true }).custom(objectId),
   body('reason').optional({ checkFalsy: true, nullable: true }).isString().trim().isLength({ max: 500 }).withMessage('reason must not exceed 500 characters.'),
   body('idempotencyKey').optional({ nullable: true }).isString().isLength({ min: 8, max: 128 }).withMessage('idempotencyKey must be 8-128 characters.'),
+  // Offline delivery: when the user triggered it (phone clock) and what the phone already texted.
+  body('clientCreatedAt').optional({ nullable: true }).isISO8601().withMessage('clientCreatedAt must be ISO 8601.'),
+  body('sms').optional({ nullable: true }).isObject().withMessage('sms must be an object.'),
+  body('sms.outcome').optional({ nullable: true }).isIn(['sent', 'partial', 'composer_opened', 'failed', 'no_permission', 'none', 'unavailable'])
+    .withMessage('sms.outcome is not a known value.'),
+  body('sms.sentTo').optional({ nullable: true }).isArray({ max: 20 }).withMessage('sms.sentTo must be an array of up to 20 phone numbers.'),
+  body('sms.sentTo.*').optional().isString().isLength({ max: 32 }),
+  body('sms.total').optional({ nullable: true }).isInt({ min: 0, max: 50 }).toInt(),
+  body('sms.attemptedAt').optional({ nullable: true }).isISO8601(),
 ];
 
 const validateSosId = [param('id').custom(objectId)];

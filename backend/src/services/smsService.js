@@ -1,8 +1,16 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const User = require('../models/User');
+const { formatIst, formatLateBy } = require('./sos/sosLate');
+
+const twilioConfigured = () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
 
 class SMSService {
+  /** 'twilio' when this server can really text contacts, else 'not_configured' (it then only logs). */
+  mode() {
+    return twilioConfigured() ? 'twilio' : 'not_configured';
+  }
+
   /**
    * Automatically dispatches SMS alerts to emergency contacts for an SOS event.
    * 
@@ -14,7 +22,7 @@ class SMSService {
    * @param {string}  [params.reason]     - Optional trigger reason
    * @returns {Promise<Object>} Summary of SMS dispatch results
    */
-  async sendSOSToSMSContacts({ userId, contacts, coords, locationDoc, type, reason, timestamp }) {
+  async sendSOSToSMSContacts({ userId, contacts, coords, locationDoc, type, reason, timestamp, triggeredAt, lateBySeconds = 0, lateDelivery = false }) {
     try {
       if (!contacts || contacts.length === 0) {
         logger.warn(`[SMSService] No emergency contacts available to receive automatic SMS for user '${userId}'.`);
@@ -47,7 +55,10 @@ class SMSService {
       const mapsUrl = Number.isFinite(lat) && Number.isFinite(lng) ? `https://maps.google.com/?q=${lat},${lng}` : null;
       const alertTypeUpper = (type || 'MANUAL').toUpperCase();
 
-      const messageBody = `🚨 SafeTours Emergency Alert 🚨\nAn ${alertTypeUpper} SOS alert has been triggered for: ${userName}.\nReason: ${reason || 'Immediate Assistance Required'}\n\n${mapsUrl ? `Location (at ${(timestamp ? new Date(timestamp) : new Date()).toISOString()}):\n${mapsUrl}` : 'Location unavailable.'}`;
+      // States WHEN the SOS was triggered (IST). A late delivery says so, so contacts are not misled about timing.
+      const when = formatIst(triggeredAt || timestamp || new Date());
+      const lateLine = lateDelivery ? `\nThis alert was delayed by ${formatLateBy(lateBySeconds)} (the phone had no signal). Triggered at ${when}.` : '';
+      const messageBody = `🚨 SafeTours Emergency Alert 🚨\nAn ${alertTypeUpper} SOS alert was triggered for: ${userName} at ${when}.${lateLine}\nReason: ${reason || 'Immediate Assistance Required'}\n\n${mapsUrl ? `Location:\n${mapsUrl}` : 'Location unavailable.'}`;
 
       const phoneNumbers = contacts
         .map(c => c.phone?.trim())
@@ -104,7 +115,8 @@ class SMSService {
         logger.info(`Message Body:\n${messageBody}`);
         logger.info(`=======================================================`);
 
-        return { sent: phoneNumbers.length, failed: 0, provider: 'simulated_dev' };
+        // Nothing was texted: report that honestly (sent:0) instead of pretending the contacts were reached.
+        return { sent: 0, failed: 0, simulated: phoneNumbers.length, provider: 'simulated_dev' };
       }
     } catch (error) {
       logger.error(`[SMSService] Unexpected error in sendSOSToSMSContacts:`, error.message);

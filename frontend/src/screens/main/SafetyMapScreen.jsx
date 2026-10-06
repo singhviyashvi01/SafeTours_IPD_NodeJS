@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, Linking, ScrollView, Modal } from 'react-native';
+import { Platform, View, StyleSheet, TouchableOpacity, TextInput, Dimensions, ActivityIndicator, Linking, ScrollView, Modal } from 'react-native';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes, typography } from '../../theme/theme';
@@ -14,6 +14,13 @@ import { communityService } from '../../services/communityService';
 import { geofenceManager, calculateDistanceMeters } from '../../utils/geofenceManager';
 import { LocationStatusModal } from '../../components/LocationStatusModal';
 import { DemoBadge } from '../../components/DemoBadge';
+import { useNearbyServices } from '../../context/NearbyContext';
+import { NEARBY_TYPES } from '../../services/nearby';
+import { OpenChip, nearbyStatusText, typeMeta } from '../../components/NearbyParts';
+import { callNumber, openDirections, sanitizePhone } from '../../utils/placeActions';
+import { formatDistance, formatAge } from '../../utils/geo';
+import { useConnectivity } from '../../context/ConnectivityContext';
+import { ensureWatching } from '../../utils/locationWatcher';
 import { useSidebar } from '../../context/SidebarContext';
 
 const { width, height } = Dimensions.get('window');
@@ -114,6 +121,8 @@ export const SafetyMapScreen = ({ route }) => {
     const [lastUpdateTime, setLastUpdateTime] = useState(null);
     const [mapRegion, setMapRegion] = useState(DEFAULT_REGION);
     const [mapType, setMapType] = useState('standard');
+    const conn = useConnectivity();
+    const [riskMeta, setRiskMeta] = useState(null); // { source, fetchedAt } of the displayed risk cells
     
     // Tracking & Permission states
     const [permissionStatus, setPermissionStatus] = useState('checking'); // checking, granted, denied, permanently_denied, disabled, error
@@ -144,6 +153,17 @@ export const SafetyMapScreen = ({ route }) => {
     const [incidentMessage, setIncidentMessage] = useState(null);
     const [isLoadingCommunity, setIsLoadingCommunity] = useState(false);
     const [communityError, setCommunityError] = useState(null);
+
+    // Nearby emergency services (shared lookup, refreshed only on a new cell / >1 km)
+    const nearby = useNearbyServices();
+    const [visibleTypes, setVisibleTypes] = useState(() => new Set(NEARBY_TYPES.map((t) => t.key)));
+    const [selectedPlace, setSelectedPlace] = useState(null);
+    const toggleType = (key) => setVisibleTypes((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+    });
+    const mapPlaces = (nearby?.places || []).filter((p) => visibleTypes.has(p.type)).slice(0, 80);
 
     const mapRef = useRef(null);
     const locationSubscription = useRef(null);
@@ -417,8 +437,14 @@ export const SafetyMapScreen = ({ route }) => {
         setIsSubmittingIncident(true);
         setIncidentMessage(null);
 
-        const lat = userLocation?.latitude || 18.9220;
-        const lng = userLocation?.longitude || 72.8347;
+        // A report is tied to where the user really is. There is no fallback place: without a fix we say so.
+        const lat = userLocation?.latitude;
+        const lng = userLocation?.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            setIncidentMessage('Your location is not available yet. Turn on location and try again.');
+            setIsSubmittingIncident(false);
+            return;
+        }
 
         const res = await communityService.reportIncident({
             incidentType: selectedIncidentType,
@@ -433,7 +459,7 @@ export const SafetyMapScreen = ({ route }) => {
             setIncidentDescription('');
             setShowReportModal(false);
             loadCommunityIncidents();
-            setGeofenceToast(`Incident reported: ${selectedIncidentType}`);
+            setGeofenceToast(res.queued ? `Saved offline: ${selectedIncidentType} will be reported when you are online` : `Incident reported: ${selectedIncidentType}`);
             setTimeout(() => setGeofenceToast(null), 4000);
         } else {
             setIncidentMessage(res.error?.message || 'Failed to report incident.');
@@ -558,6 +584,7 @@ export const SafetyMapScreen = ({ route }) => {
      * Start continuous live GPS position watching
      */
     const startLiveTracking = async () => {
+        ensureWatching();
         setIsLoadingLocation(true);
         try {
             // Get initial location snapshot
@@ -661,6 +688,7 @@ export const SafetyMapScreen = ({ route }) => {
         if (res.success) {
             const cells = res.data || [];
             setDangerZones(cells);
+            setRiskMeta(res.meta?.source === 'device' ? { source: 'device', fetchedAt: res.meta.fetchedAt } : { source: 'server', fetchedAt: Date.now() });
         } else {
             setDangerZoneError(res.error?.message || 'Failed to load risk cells');
         }
@@ -685,6 +713,15 @@ export const SafetyMapScreen = ({ route }) => {
             await startLiveTracking();
         }
     };
+
+    // Reload the cells when the connection drops or returns: cached cells while offline, fresh ones when back.
+    const offlineRef = useRef(conn.isOffline);
+    useEffect(() => {
+        if (offlineRef.current === conn.isOffline) return;
+        offlineRef.current = conn.isOffline;
+        if (userLocation) loadDangerZones(null, true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conn.isOffline]);
 
     const toggleMapType = () => {
         setMapType(prev => prev === 'standard' ? 'hybrid' : 'standard');
@@ -745,11 +782,14 @@ export const SafetyMapScreen = ({ route }) => {
                 userLocation={userLocation}
                 destinationMarker={destination}
                 onSelectDestination={handleOpenDestinationDetails}
-                mapType={mapType}
+                // Offline on Android (Google Maps) draw no base tiles at all instead of a half-loaded grid.
+                mapType={conn.isOffline && Platform.OS === 'android' ? 'none' : mapType}
                 dangerZones={filteredDangerZones}
                 communityIncidents={communityIncidents}
                 selectedZone={activeZone}
                 onSelectZone={handleSelectZone}
+                nearbyPlaces={mapPlaces}
+                onSelectPlace={setSelectedPlace}
             />
 
             {/* Visible whenever any displayed risk includes demo data */}
@@ -758,6 +798,45 @@ export const SafetyMapScreen = ({ route }) => {
                     <DemoBadge />
                 </View>
             )}
+
+            {/* Offline: what the map is showing */}
+            {(conn.isOffline || riskMeta?.source === 'device' || geofenceResult?.source === 'device') && (
+                <View style={styles.offlinePill} pointerEvents="none">
+                    <Ionicons name="cloud-offline" size={14} color="#fff" />
+                    <Text variant="labelSm" style={{ color: '#fff', fontWeight: '700', flexShrink: 1 }}>
+                        {geofenceResult?.source === 'device' ? 'Offline check · ' : 'Offline · '}
+                        {riskMeta?.source === 'device' && dangerZones.length
+                            ? `cached risk cells, updated ${formatAge(Date.now() - riskMeta.fetchedAt) || 'just now'}`
+                            : dangerZones.length ? 'showing last loaded cells' : 'no cached risk data here; download this area in Settings'}
+                        {Platform.OS === 'android' && conn.isOffline ? ' · base map blank' : ''}
+                    </Text>
+                </View>
+            )}
+
+            {/* Nearby services: type toggles + data-quality line */}
+            <View style={styles.nearbyToggles} pointerEvents="box-none">
+                <View style={styles.nearbyToggleRow}>
+                    {NEARBY_TYPES.map((t) => {
+                        const on = visibleTypes.has(t.key);
+                        return (
+                            <TouchableOpacity
+                                key={t.key}
+                                onPress={() => toggleType(t.key)}
+                                style={[styles.nearbyChip, on && { backgroundColor: t.color, borderColor: t.color }]}
+                                accessibilityLabel={`${on ? 'Hide' : 'Show'} ${t.label}`}
+                            >
+                                <Ionicons name={t.icon} size={14} color={on ? '#fff' : t.color} />
+                                <Text variant="labelSm" style={{ color: on ? '#fff' : colors['on-surface'], fontWeight: '700' }}>{t.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+                {nearby && nearbyStatusText(nearby) ? (
+                    <View style={styles.nearbyNote}>
+                        <Text variant="labelSm" color={colors['on-surface-variant']}>{nearbyStatusText(nearby)}</Text>
+                    </View>
+                ) : null}
+            </View>
 
             {/* Top Search & Diagnostics Bar */}
             <View style={styles.topSearchContainer}>
@@ -1295,6 +1374,51 @@ export const SafetyMapScreen = ({ route }) => {
             </View>
             )}
 
+            {/* Tapped nearby place: name, distance, Call (only with a phone number) and Directions */}
+            <Modal visible={Boolean(selectedPlace)} transparent animationType="slide" onRequestClose={() => setSelectedPlace(null)}>
+                <TouchableOpacity style={styles.placeBackdrop} activeOpacity={1} onPress={() => setSelectedPlace(null)}>
+                    {selectedPlace && (
+                        <View style={styles.placeSheet}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                <View style={[styles.placeIcon, { backgroundColor: `${typeMeta(selectedPlace.type).color}22` }]}>
+                                    <Ionicons name={typeMeta(selectedPlace.type).icon} size={22} color={typeMeta(selectedPlace.type).color} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text variant="headlineSm" style={{ fontWeight: 'bold' }} numberOfLines={2}>
+                                        {selectedPlace.name || `${selectedPlace.typeLabel} (name unknown)`}
+                                    </Text>
+                                    <Text variant="labelMd" color={colors['on-surface-variant']}>
+                                        {formatDistance(selectedPlace.distance)} away · {typeMeta(selectedPlace.type).label}
+                                    </Text>
+                                </View>
+                                <OpenChip openNow={selectedPlace.openNow} />
+                            </View>
+                            {selectedPlace.address ? (
+                                <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginTop: 10 }}>{selectedPlace.address}</Text>
+                            ) : null}
+                            {selectedPlace.openingHours ? (
+                                <Text variant="labelMd" color={colors['on-surface-variant']} style={{ marginTop: 4 }}>Hours: {selectedPlace.openingHours}</Text>
+                            ) : null}
+                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+                                {sanitizePhone(selectedPlace.phone) ? (
+                                    <TouchableOpacity style={[styles.placeBtn, { backgroundColor: '#1b8a3a' }]} onPress={() => callNumber(selectedPlace.phone)}>
+                                        <Ionicons name="call" size={18} color="#fff" />
+                                        <Text variant="labelLg" style={{ color: '#fff', fontWeight: 'bold' }}>Call</Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                                <TouchableOpacity
+                                    style={[styles.placeBtn, { backgroundColor: colors.primary }]}
+                                    onPress={() => openDirections({ lat: selectedPlace.lat, lng: selectedPlace.lng, name: selectedPlace.name || selectedPlace.typeLabel })}
+                                >
+                                    <Ionicons name="navigate" size={18} color="#fff" />
+                                    <Text variant="labelLg" style={{ color: '#fff', fontWeight: 'bold' }}>Directions</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+                </TouchableOpacity>
+            </Modal>
+
             {/* Location Status Diagnostics Modal */}
             <LocationStatusModal
                 visible={showStatusModal}
@@ -1458,6 +1582,10 @@ export const SafetyMapScreen = ({ route }) => {
 };
 
 const styles = StyleSheet.create({
+    offlinePill: {
+        position: 'absolute', top: 118, right: 12, maxWidth: '68%', zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 6,
+        backgroundColor: 'rgba(60,60,60,0.88)', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6,
+    },
     container: {
         flex: 1,
         backgroundColor: colors.background,
@@ -1493,6 +1621,17 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(217, 194, 183, 0.3)',
         flexShrink: 0,
     },
+    nearbyToggles: { position: 'absolute', top: 150, left: 12, right: 12, zIndex: 20 },
+    nearbyToggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    nearbyChip: {
+        flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5,
+        borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.95)', borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)',
+    },
+    nearbyNote: { alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.92)' },
+    placeBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+    placeSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 32 },
+    placeIcon: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    placeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14 },
     demoBadgeFloating: {
         position: 'absolute',
         top: 118,

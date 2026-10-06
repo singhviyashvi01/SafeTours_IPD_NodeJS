@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform } from 'react-native';
-import { useNetInfo } from '@react-native-community/netinfo';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { GlassCard, InfoCard } from '../../components/ReusableCards';
@@ -18,6 +17,17 @@ import { profileService } from '../../services/profile';
 import { formatScore, confidenceText, dataQualityNote, factorLabel } from '../../utils/riskLevels';
 import { getRiskColors } from '../../components/MapComponent';
 import { DemoBadge } from '../../components/DemoBadge';
+import { NearbyServicesCard } from '../../components/NearbyServicesCard';
+import { ensureWatching } from '../../utils/locationWatcher';
+import { useConnectivity } from '../../context/ConnectivityContext';
+import { formatAge } from '../../utils/geo';
+import { useOutbox } from '../../context/OutboxContext';
+
+const STATE_STYLE = {
+    ONLINE: { label: 'ONLINE', color: colors.tertiary, detail: 'Connected' },
+    WEAK: { label: 'WEAK', color: '#b26a00', detail: 'Weak connection' },
+    OFFLINE: { label: 'OFFLINE', color: colors.error, detail: 'Offline' },
+};
 
 const getGreeting = () => {
     const hour = new Date().getHours();
@@ -31,33 +41,48 @@ export const HomeScreen = () => {
     const navigation = useNavigation();
     const { user } = useAuth();
     const { toggleDrawer } = useSidebar();
-    const netInfo = useNetInfo();
+    const conn = useConnectivity();
+    const { summary: outboxSummary } = useOutbox();
+    const locationRef = useRef(null);
+    const firstRun = useRef(true);
     const [data, setData] = useState(null);
     const [loadError, setLoadError] = useState(null);
     const [profile, setProfile] = useState(null);
 
-    useEffect(() => {
-        // Load location-specific backend values instead of displaying dashboard mock data.
-        const loadDashboard = async () => {
-            try {
+    // Backend-owned risk for the real location. When the server cannot be reached the risk service answers from
+    // the on-device cache (source 'device') and the card says so.
+    const loadDashboard = useCallback(async () => {
+        try {
+            if (!locationRef.current) {
                 const { status } = await Location.requestForegroundPermissionsAsync();
                 if (status !== 'granted') {
                     throw new Error('Location permission is required to load your safety summary.');
                 }
+                ensureWatching();
                 const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-                const dashboardData = await dashboardService.getDashboardData(
-                    location.coords.latitude,
-                    location.coords.longitude
-                );
-                setData(dashboardData);
-            } catch (error) {
-                console.warn('Dashboard load error:', error);
-                setLoadError(error.message || 'Could not load your safety summary.');
+                locationRef.current = location.coords;
             }
-        };
-
-        loadDashboard();
+            const { latitude, longitude } = locationRef.current;
+            setData(await dashboardService.getDashboardData(latitude, longitude));
+            setLoadError(null);
+        } catch (error) {
+            console.warn('Dashboard load error:', error);
+            setLoadError(error.message || 'Could not load your safety summary.');
+        }
     }, []);
+
+    useEffect(() => {
+        loadDashboard();
+    }, [loadDashboard]);
+
+    // Reload when connectivity changes between OFFLINE and reachable (fresh server data / cached data).
+    useEffect(() => {
+        if (firstRun.current) {
+            firstRun.current = false;
+            return;
+        }
+        loadDashboard();
+    }, [conn.isOffline, loadDashboard]);
 
     useEffect(() => {
         // Read the existing authenticated profile so the greeting uses the person's actual name.
@@ -66,8 +91,8 @@ export const HomeScreen = () => {
         });
     }, []);
 
-    // NetInfo subscribes to connection changes, so the badge updates without polling.
-    const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
+    const net = STATE_STYLE[conn.state] || STATE_STYLE.OFFLINE;
+    const fromDevice = data?.source === 'device';
     // Display the authenticated profile name; usernames are not presented as a name fallback.
     const displayName = profile?.name || profile?.firstName || profile?.fullName
         || user?.name || user?.firstName || user?.fullName || 'Traveler';
@@ -92,9 +117,9 @@ export const HomeScreen = () => {
                     <Text variant="headlineMd" style={styles.headerTitle}>SafeTours</Text>
                 </View>
                 <View style={styles.headerRight}>
-                    <View style={[styles.onlineBadge, !isOnline && styles.offlineBadge]}>
-                        <View style={[styles.onlineDot, !isOnline && styles.offlineDot]} />
-                        <Text variant="labelMd" style={[styles.onlineText, !isOnline && styles.offlineText]}>{isOnline ? 'ONLINE' : 'OFFLINE'}</Text>
+                    <View style={[styles.onlineBadge, conn.state !== 'ONLINE' && { backgroundColor: `${net.color}22` }]}>
+                        <View style={[styles.onlineDot, { backgroundColor: net.color }]} />
+                        <Text variant="labelMd" style={[styles.onlineText, { color: net.color }]}>{net.label}</Text>
                     </View>
                     <TouchableOpacity style={styles.profilePicContainer} onPress={() => navigation.navigate('Profile')}>
                         {user?.profileImage
@@ -142,6 +167,9 @@ export const HomeScreen = () => {
                                     Data confidence: {confidenceText(data.risk)}
                                 </Text>
                             )}
+                            <Text variant="labelMd" color={fromDevice ? colors.error : colors['on-surface-variant']}>
+                                {fromDevice ? 'Offline check · ' : ''}Risk data updated {formatAge(Date.now() - (data.fetchedAt || Date.now())) || 'just now'}
+                            </Text>
                             {dataQualityNote(data.risk) && (
                                 <Text variant="labelMd" color={data.risk?.lowConfidence ? colors.error : colors['on-surface-variant']}>
                                     {dataQualityNote(data.risk)}
@@ -149,6 +177,25 @@ export const HomeScreen = () => {
                             )}
                         </View>
                     </GlassCard>
+                )}
+
+                {/* Upload queue: what is waiting, when the last upload was, and anything the server rejected */}
+                {(outboxSummary.waiting > 0 || outboxSummary.dead > 0) && (
+                    <InfoCard style={styles.heroCard}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+                            <Ionicons name={outboxSummary.dead > 0 ? 'alert-circle' : 'cloud-upload'} size={22} color={outboxSummary.dead > 0 ? colors.error : colors.primary} />
+                            <View style={{ flex: 1 }}>
+                                <Text variant="labelLg" style={{ fontWeight: 'bold' }}>
+                                    {outboxSummary.waiting} item{outboxSummary.waiting === 1 ? '' : 's'} waiting to upload
+                                    {outboxSummary.dead > 0 ? `, ${outboxSummary.dead} rejected` : ''}
+                                </Text>
+                                <Text variant="labelMd" color={colors['on-surface-variant']}>
+                                    Last upload: {outboxSummary.lastSyncAt ? formatAge(Date.now() - outboxSummary.lastSyncAt) || 'just now' : 'never'}
+                                    {outboxSummary.dead > 0 ? '. Open Settings to retry or discard them.' : conn.isOffline ? '. They upload when you are back online.' : '.'}
+                                </Text>
+                            </View>
+                        </View>
+                    </InfoCard>
                 )}
 
                 {/* Weather & Connectivity Row */}
@@ -162,13 +209,17 @@ export const HomeScreen = () => {
                     </InfoCard>
                     <InfoCard style={styles.halfCard}>
                         <View style={styles.halfCardHeader}>
-                            <Ionicons name="wifi" size={24} color={colors.tertiary} />
-                            <Text variant="headlineMd" style={styles.halfCardValue}>{isOnline ? 'Connected' : 'Offline'}</Text>
+                            <Ionicons name={conn.isOffline ? 'cloud-offline' : 'wifi'} size={24} color={net.color} />
+                            <Text variant="headlineMd" style={styles.halfCardValue}>{net.detail}</Text>
                         </View>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>{netInfo.type || 'Unknown network'}</Text>
+                        <Text variant="labelMd" color={colors['on-surface-variant']}>
+                            {conn.forced ? 'Offline mode is ON (Settings)' : (conn.netType && conn.netType !== 'unknown' ? conn.netType : 'Unknown network')}
+                        </Text>
                     </InfoCard>
                 </View>
 
+
+                <NearbyServicesCard />
 
                 {/* Quick Actions */}
                 <View style={styles.quickActions}>

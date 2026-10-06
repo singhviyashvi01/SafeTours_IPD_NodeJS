@@ -18,6 +18,16 @@ const syncGeofenceLocations = asyncHandler(async (req, res) => {
   });
 });
 
+/** POST /api/geofence/events: events raised on the phone while offline (history only, never an SOS). */
+const recordDeviceEvents = asyncHandler(async (req, res) => {
+  const out = await geofenceService.recordDeviceEvents(req.user._id, req.body.events);
+  return res.status(200).json({
+    success: true,
+    message: `Stored ${out.inserted} of ${out.received} events (${out.duplicates} already known, ${out.rejected.length} rejected).`,
+    data: out,
+  });
+});
+
 /** GET /api/geofence/status */
 const getGeofenceStatus = asyncHandler(async (req, res) => {
   const data = await geofenceService.getGeofenceStatus(req.user._id);
@@ -30,4 +40,4 @@ const getGeofenceHistory = asyncHandler(async (req, res) => {
   return res.status(200).json({ success: true, message: 'Geofence history retrieved successfully.', count: data.length, data });
 });
 
-module.exports = { checkGeofence, syncGeofenceLocations, getGeofenceStatus, getGeofenceHistory };
+module.exports = { checkGeofence, syncGeofenceLocations, recordDeviceEvents, getGeofenceStatus, getGeofenceHistory };

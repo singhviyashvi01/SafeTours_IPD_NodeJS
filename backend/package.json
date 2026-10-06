@@ -10,7 +10,10 @@
     "migrate:cells": "node src/scripts/migrateGridCells.js",
     "user:role": "node src/scripts/setUserRole.js",
     "crime:build": "node src/scripts/buildCrime.js",
-    "validate:risk": "node src/scripts/validateRisk.js"
+    "validate:risk": "node src/scripts/validateRisk.js",
+    "seed:nearby": "node src/scripts/seedNearby.js",
+    "create:indexes": "node src/scripts/createOutboxIndexes.js",
+    "sync:device-core": "node src/scripts/syncDeviceCore.js"
   },
   "keywords": [],
   "author": "",

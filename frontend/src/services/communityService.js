@@ -1,4 +1,5 @@
 import { apiClient, formatApiError } from './apiClient';
+import { sendOrQueue } from './outbox';
 
 /**
  * Service for interacting with backend Community Incident endpoints.
@@ -9,20 +10,24 @@ export const communityService = {
    * @param {Object} payload - { incidentType, description, latitude, longitude }
    */
   async reportIncident(payload) {
-    try {
-      const response = await apiClient.post('/community/report', payload);
+    // Sent now, or kept in the outbox (same idempotency key) and sent when the connection returns. A report that
+    // reached the server but whose answer was lost is not created twice: the server stores the key.
+    const res = await sendOrQueue({
+      type: 'community_report',
+      payload: { report: payload },
+      send: (key) => apiClient.post('/community/report', payload, { headers: { 'Idempotency-Key': key } }),
+    });
+    if (res.success) {
       return {
         success: true,
-        data: response.data?.data || null,
-        message: response.data?.message || 'Incident reported successfully.',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        data: null,
-        error: formatApiError(error),
+        data: res.response.data?.data || null,
+        message: res.response.data?.message || 'Incident reported successfully.',
       };
     }
+    if (res.queued) {
+      return { success: true, queued: true, data: null, message: 'Saved offline. It will be reported automatically when you are back online.' };
+    }
+    return { success: false, data: null, error: res.error };
   },
 
   /**

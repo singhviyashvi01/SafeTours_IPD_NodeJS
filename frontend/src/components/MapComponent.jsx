@@ -2,6 +2,7 @@ import React, { forwardRef } from 'react';
 import { StyleSheet, View, Platform, TouchableOpacity } from 'react-native';
 import { colors } from '../theme/theme';
 import { Text } from './Text';
+import { NEARBY_TYPES } from '../services/nearby';
 
 let MapView, Marker, Circle, Polygon;
 if (Platform.OS !== 'web') {
@@ -39,6 +40,8 @@ export const MapComponent = forwardRef(({
     communityIncidents = [],
     selectedZone = null,
     onSelectZone,
+    nearbyPlaces = [],
+    onSelectPlace = null,
     destinationMarker = null,
     onSelectDestination = null,
     ...props
@@ -155,6 +158,17 @@ export const MapComponent = forwardRef(({
                     </React.Fragment>
                 );
             })}
+
+            {/* Nearby emergency services: one coloured pin per type */}
+            {nearbyPlaces.map((place) => (
+                <Marker
+                    key={`nearby-${place.id}`}
+                    coordinate={{ latitude: place.lat, longitude: place.lng }}
+                    pinColor={(NEARBY_TYPES.find((t) => t.key === place.type) || {}).color}
+                    title={place.name || place.typeLabel}
+                    onPress={() => onSelectPlace && onSelectPlace(place)}
+                />
+            ))}
 
             {/* Current User Location Marker */}
             {userLocation && (

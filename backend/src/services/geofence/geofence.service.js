@@ -210,6 +210,45 @@ class GeofenceService {
     }
   }
 
+  /**
+   * Stores events the PHONE raised offline (same shared state machine, parity-tested). History only: this never
+   * touches the geofence state, never creates a safety check and never an SOS, whatever the event's age.
+   * An event uses the same key as one derived by replaying the points (`event:timestampMs:cell`), so the history
+   * has one entry for it whichever of the two reaches the server first.
+   */
+  async recordDeviceEvents(userId, events, { model = GeofenceEvent, now = new Date() } = {}) {
+    const rejected = [];
+    let inserted = 0;
+    let duplicates = 0;
+    for (let index = 0; index < events.length; index += 1) {
+      const e = events[index];
+      const ts = new Date(e.timestamp).getTime();
+      if (Number.isNaN(ts) || ts > now.getTime() + 5 * 60000) { rejected.push({ index, reason: 'timestamp in the future or invalid' }); continue; }
+      if (now.getTime() - ts > 30 * 86400000) { rejected.push({ index, reason: 'older than 30 days' }); continue; }
+      const key = `${e.event}:${ts}:${e.h3Index}`;
+      const res = await model.updateOne(
+        { userId, idempotencyKey: key },
+        {
+          $setOnInsert: {
+            userId,
+            event: e.event,
+            riskLevel: e.riskLevel,
+            totalRisk: e.totalRisk ?? 0,
+            location: { type: 'Point', coordinates: [Number(e.longitude), Number(e.latitude)] },
+            timestamp: new Date(ts),
+            historical: true,
+            source: 'device',
+            idempotencyKey: key,
+          },
+        },
+        { upsert: true }
+      );
+      if (res && res.upsertedCount > 0) inserted += 1;
+      else duplicates += 1;
+    }
+    return { received: events.length, inserted, duplicates, rejected };
+  }
+
   /** One live GPS reading. */
   async check(userId, { latitude, longitude, accuracy, timestamp }) {
     const { result, state, safetyCheck, decision } = await this.ingest(userId, [{ latitude, longitude, accuracy, timestamp }]);

@@ -3,6 +3,7 @@ const router = express.Router();
 
 const { verifyJWT } = require('../middleware/authMiddleware');
 const { communityReport } = require('../middleware/rateLimiters');
+const { idempotent } = require('../middleware/idempotency');
 const {
   reportIncident,
   getNearbyIncidents,
@@ -25,7 +26,8 @@ router.use(verifyJWT);
  * POST /api/community/report
  * Create a new community incident report
  */
-router.post('/report', communityReport, reportIncidentRules, validateRequest, reportIncident);
+// idempotent() first: a re-sent report returns the stored answer and does not use up the hourly quota.
+router.post('/report', idempotent('community.report'), communityReport, reportIncidentRules, validateRequest, reportIncident);
 
 /**
  * GET /api/community/nearby

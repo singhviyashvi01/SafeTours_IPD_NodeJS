@@ -68,6 +68,8 @@ const geofenceEventSchema = new mongoose.Schema(
     // True for events replayed from an offline batch that were already old when processed.
     // They are history only and never start an SOS prompt.
     historical: { type: Boolean, default: false },
+    // 'device' for events the phone raised offline and uploaded later, 'server' when derived by the server.
+    source: { type: String, enum: ['server', 'device'], default: 'server' },
     // userId + event + timestamp + cell: re-sending the same batch never duplicates history.
     idempotencyKey: { type: String, default: undefined },
   },

@@ -52,6 +52,10 @@ module.exports = {
     pollSeconds: num('SOS_POLL_SECONDS', 5),
     // An active SOS older than this is closed automatically so it cannot block new SOS forever.
     activeMaxHours: num('SOS_ACTIVE_MAX_HOURS', 12),
+    // An SOS the phone queued offline and delivered later than this is flagged lateDelivery:true.
+    lateAfterSeconds: num('SOS_LATE_AFTER_SECONDS', 120),
+    // The phone's own 'created at' is only trusted up to this far back (a wrong phone clock must not rewrite history).
+    maxBackdateHours: num('SOS_MAX_BACKDATE_HOURS', 48),
   },
 
   eta: {

@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { contactsCache } from './contactsCache';
 
 export const contactsService = {
   /**
@@ -6,8 +7,19 @@ export const contactsService = {
    * Retrieves all emergency contacts for the authenticated user.
    */
   list: async () => {
-    const response = await apiClient.get('/contacts');
-    return response.data.data || [];
+    try {
+      const response = await apiClient.get('/contacts');
+      const list = response.data.data || [];
+      contactsCache.save(list); // keep the offline copy (used by the SOS text message) in step
+      return list;
+    } catch (error) {
+      // No network: show the last synced contacts instead of an error. Real server errors still surface.
+      if (!error.response) {
+        const cached = await contactsCache.get();
+        if (cached) return cached.contacts;
+      }
+      throw error;
+    }
   },
 
   /**
@@ -25,6 +37,7 @@ export const contactsService = {
    */
   create: async payload => {
     const response = await apiClient.post('/contacts', payload);
+    contactsCache.refresh();
     return response.data.data;
   },
 
@@ -34,6 +47,7 @@ export const contactsService = {
    */
   update: async (id, payload) => {
     const response = await apiClient.put(`/contacts/${id}`, payload);
+    contactsCache.refresh();
     return response.data.data;
   },
 
@@ -43,6 +57,7 @@ export const contactsService = {
    */
   remove: async id => {
     const response = await apiClient.delete(`/contacts/${id}`);
+    contactsCache.refresh();
     return response.data.data;
   },
 };

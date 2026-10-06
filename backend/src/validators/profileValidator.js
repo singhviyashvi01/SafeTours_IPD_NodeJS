@@ -191,6 +191,13 @@ const validateEmergencySettings = (req, res, next) => {
       }
     }
 
+    // customSosMessage: the sentence added to the SOS text message (kept short so the SMS stays within 2 segments)
+    if (emergencySettings.customSosMessage !== undefined && emergencySettings.customSosMessage !== null) {
+      if (typeof emergencySettings.customSosMessage !== 'string' || emergencySettings.customSosMessage.length > 120) {
+        errors.push({ field: 'emergencySettings.customSosMessage', message: 'customSosMessage must be text of at most 120 characters' });
+      }
+    }
+
     // preferredLanguage check
     if (emergencySettings.preferredLanguage !== undefined && emergencySettings.preferredLanguage !== null) {
       if (typeof emergencySettings.preferredLanguage !== 'string') {

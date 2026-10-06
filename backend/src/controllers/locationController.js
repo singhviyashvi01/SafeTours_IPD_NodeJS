@@ -41,6 +41,30 @@ const syncLocation = async (req, res) => {
 };
 
 /**
+ * POST /api/location/batch: points recorded while offline (idempotent per point).
+ * Arrival detection only looks at the newest point, and only when it is fresh: a replayed point says nothing
+ * about where the user is now.
+ */
+const syncLocationBatch = async (req, res) => {
+  try {
+    const out = await locationService.saveBatch(req.user._id, req.body.points);
+    if (out.newest && Date.now() - new Date(out.newest.timestamp).getTime() <= 10 * 60 * 1000) {
+      journeyService
+        .checkArrival(req.user._id, { latitude: out.newest.latitude, longitude: out.newest.longitude, accuracy: out.newest.accuracy })
+        .catch((e) => logger.error('[location] arrival check failed', e));
+    }
+    return res.status(200).json({
+      success: true,
+      message: `Stored ${out.inserted} of ${out.received} points (${out.duplicates} already stored, ${out.rejected.length} rejected).`,
+      data: { received: out.received, inserted: out.inserted, duplicates: out.duplicates, rejected: out.rejected },
+    });
+  } catch (error) {
+    logger.error('[location] batch failed', error);
+    return res.status(500).json({ success: false, message: 'An error occurred while storing the location batch.', error: error.message });
+  }
+};
+
+/**
  * Handles incoming requests to retrieve the user's most recent location.
  */
 const getLatestLocation = async (req, res) => {
@@ -76,5 +100,6 @@ const getLatestLocation = async (req, res) => {
 
 module.exports = {
   syncLocation,
+  syncLocationBatch,
   getLatestLocation,
 };

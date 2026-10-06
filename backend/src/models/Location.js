@@ -42,6 +42,10 @@ const locationSchema = new mongoose.Schema(
       // Helps query time-series data quickly
       index: true,
     },
+    // Set by the phone's offline outbox (a UUID made when the point was recorded). Re-sending a point with the
+    // same key never stores it twice.
+    idempotencyKey: { type: String, default: undefined },
+
     // A nested metadata object allows clean additions of future fields
     metadata: {
       tripId: {
@@ -81,6 +85,10 @@ locationSchema.index({ location: '2dsphere' });
 
 // Compound index to quickly fetch a specific user's location history chronologically
 locationSchema.index({ userId: 1, timestamp: -1 });
+locationSchema.index(
+  { userId: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } }
+);
 
 const Location = mongoose.model('Location', locationSchema);
 

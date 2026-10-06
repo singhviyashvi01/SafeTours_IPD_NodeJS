@@ -1,4 +1,7 @@
 import { apiClient } from './apiClient';
+import { kvCache } from '../storage/kvCache';
+
+const SOS_PROFILE_KEY = 'profile:sos';
 
 export const profileService = {
   /**
@@ -7,7 +10,34 @@ export const profileService = {
    */
   getProfile: async () => {
     const response = await apiClient.get('/profile');
-    return response.data.data.profile;
+    const profile = response.data.data.profile;
+    profileService.cacheSosProfile(profile);
+    return profile;
+  },
+
+  /** Keeps what the offline SOS text needs: the name, the user's own number and the custom SOS sentence. */
+  cacheSosProfile: (profile) => {
+    if (!profile) return;
+    kvCache.set(SOS_PROFILE_KEY, {
+      name: profile.name || profile.username || null,
+      phone: profile.phone || null,
+      customSosMessage: (profile.emergencySettings && profile.emergencySettings.customSosMessage) || '',
+      savedAt: Date.now(),
+    });
+  },
+
+  /** The cached SOS profile, or null if the profile has never been loaded on this phone. */
+  getCachedSosProfile: async () => {
+    const hit = await kvCache.get(SOS_PROFILE_KEY, { allowExpired: true });
+    return hit ? hit.value : null;
+  },
+
+  /** PUT /api/profile/settings with only the SOS sentence (<= 120 characters). */
+  updateSosMessage: async (text) => {
+    const response = await apiClient.put('/profile/settings', { emergencySettings: { customSosMessage: String(text || '').slice(0, 120) } });
+    const profile = response.data.data.profile;
+    profileService.cacheSosProfile(profile);
+    return profile;
   },
 
   /**

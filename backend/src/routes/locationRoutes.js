@@ -5,11 +5,13 @@ const router = express.Router();
 const { verifyJWT } = require('../middleware/authMiddleware');
 
 // Import the location controller methods
-const { syncLocation, getLatestLocation } = require('../controllers/locationController');
+const { syncLocation, syncLocationBatch, getLatestLocation } = require('../controllers/locationController');
+const { idempotent } = require('../middleware/idempotency');
 
 // Import the validation rules and error-handling middleware
 const { 
   validateLocationRules, 
+  validateLocationBatchRules,
   validateLocationRequest 
 } = require('../middleware/locationValidator');
 
@@ -21,9 +23,23 @@ const {
 router.post(
   '/',
   verifyJWT,
+  idempotent('location.single'),
   validateLocationRules,
   validateLocationRequest,
   syncLocation
+);
+
+/**
+ * POST /api/location/batch
+ * Points recorded while offline. Each point has its own idempotencyKey, so re-sending is harmless.
+ */
+router.post(
+  '/batch',
+  verifyJWT,
+  idempotent('location.batch'),
+  validateLocationBatchRules,
+  validateLocationRequest,
+  syncLocationBatch
 );
 
 /**

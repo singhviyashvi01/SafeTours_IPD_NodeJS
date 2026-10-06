@@ -1,4 +1,5 @@
 import { apiClient, formatApiError } from './apiClient';
+import { sendOrQueue } from './outbox';
 
 /**
  * Service for interacting with backend Journey endpoints.
@@ -31,20 +32,23 @@ export const journeyService = {
    * @param {Object} updateData - { expectedArrivalTime, metadata }
    */
   async update(journeyId, updateData) {
-    try {
-      const response = await apiClient.post(`/journey/update/${journeyId}`, updateData);
+    // Sent now, or kept in the outbox (same idempotency key) and sent when the connection returns.
+    const res = await sendOrQueue({
+      type: 'journey_update',
+      payload: { journeyId, update: updateData },
+      send: (key) => apiClient.post(`/journey/update/${journeyId}`, updateData, { headers: { 'Idempotency-Key': key } }),
+    });
+    if (res.success) {
       return {
         success: true,
-        journey: response.data?.journey || null,
-        message: response.data?.message || 'Journey updated successfully.',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        journey: null,
-        error: formatApiError(error),
+        journey: res.response.data?.journey || null,
+        message: res.response.data?.message || 'Journey updated successfully.',
       };
     }
+    if (res.queued) {
+      return { success: false, queued: true, journey: null, message: 'Saved offline: the update will be sent when you are back online.', error: { message: 'Saved offline: the update will be sent when you are back online.', status: 0 } };
+    }
+    return { success: false, journey: null, error: res.error };
   },
 
   /**

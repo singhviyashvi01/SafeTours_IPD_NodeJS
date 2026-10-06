@@ -1,5 +1,6 @@
 import { apiClient, formatApiError } from './apiClient';
-import { offlineQueueManager } from '../utils/offlineQueueManager';
+import { sendOrQueue } from './outbox';
+import { outboxRunner } from './outboxRunner';
 
 export const locationService = {
   /**
@@ -15,33 +16,17 @@ export const locationService = {
       timestamp: locationData.timestamp || new Date().toISOString(),
     };
 
-    try {
-      const response = await apiClient.post('/location', payload);
-
-      // Successfully synced — attempt to flush any previous offline queued points
-      offlineQueueManager.flushQueue(async (item) => {
-        const res = await apiClient.post('/location', item);
-        return { success: res.status === 201 || res.status === 200 };
-      });
-
-      return {
-        success: true,
-        data: response.data?.data || response.data,
-      };
-    } catch (error) {
-      const formatted = formatApiError(error);
-
-      // If it's a network error (status 0 or no response), queue for offline sync
-      if (formatted.status === 0 || !error.response) {
-        offlineQueueManager.enqueue(payload);
-      }
-
-      return {
-        success: false,
-        data: null,
-        error: formatted,
-      };
-    }
+    // Sent now, or stored in the SQLite outbox under the same idempotency key and uploaded in batches
+    // (POST /location/batch) when the connection returns: nothing is lost and nothing is stored twice.
+    const res = await sendOrQueue({
+      type: 'location_point',
+      payload: { channel: 'track', ...payload },
+      createdAt: new Date(payload.timestamp).getTime() || Date.now(),
+      send: (key) => apiClient.post('/location', payload, { headers: { 'Idempotency-Key': key } }),
+    });
+    if (res.success) return { success: true, data: res.response.data?.data || res.response.data };
+    if (res.queued) return { success: false, queued: true, data: null, error: { message: 'Saved offline; it will upload when you are back online.', status: 0 } };
+    return { success: false, data: null, error: res.error };
   },
 
   /**
@@ -68,6 +53,6 @@ export const locationService = {
    * Get size of offline queue
    */
   getOfflineQueueSize() {
-    return offlineQueueManager.getQueueSize();
+    return outboxRunner.getSummary().byType.location_point || 0;
   },
 };

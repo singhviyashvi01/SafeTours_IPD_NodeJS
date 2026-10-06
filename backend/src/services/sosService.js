@@ -7,6 +7,7 @@ const notificationService = require('./notificationService');
 const smsService = require('./smsService');
 const cfg = require('../config/geofence.config');
 const { confirmDeadline, secondsLeft } = require('./sos/sosPolicy');
+const { decideLateness, splitBySmsReport, formatIst, formatLateBy } = require('./sos/sosLate');
 const ApiError = require('../utils/apiError');
 const logger = require('../utils/logger');
 
@@ -81,26 +82,37 @@ async function activeJourneyId(userId, journeyId) {
 async function dispatchEscalation(rec) {
   try {
     const contacts = await EmergencyContact.find({ user: rec.user }).sort({ priority: 1, createdAt: -1 }).exec();
-    const sms = await smsService.sendSOSToSMSContacts({
-      userId: rec.user,
-      contacts,
-      coords: rec.coords,
-      type: rec.type,
-      reason: rec.reason,
-      timestamp: rec.coords?.timestamp,
-    });
+    // Contacts the phone already texted (a confirmed send) are not texted again; they still count as notified.
+    const { alreadyTexted, toText } = splitBySmsReport(contacts, rec.clientSms);
+    const sms = toText.length
+      ? await smsService.sendSOSToSMSContacts({
+          userId: rec.user,
+          contacts: toText,
+          coords: rec.coords,
+          type: rec.type,
+          reason: rec.reason,
+          timestamp: rec.coords?.timestamp,
+          triggeredAt: rec.triggeredAt,
+          lateDelivery: Boolean(rec.lateDelivery),
+          lateBySeconds: rec.lateBySeconds || 0,
+        })
+      : { sent: 0, failed: 0, reason: 'All contacts were already texted by the phone' };
+    sms.skippedBecauseDeviceSent = alreadyTexted.length;
     await SOSHistory.updateOne(
       { _id: rec._id },
       { $set: { notifiedContacts: contacts.map((c) => c._id), 'metadata.sms': sms, 'metadata.contactCount': contacts.length } }
     );
+
+    const when = formatIst(rec.triggeredAt || new Date());
+    const lateNote = rec.lateDelivery ? ` It was triggered at ${when} and delivered ${formatLateBy(rec.lateBySeconds || 0)} late (no signal).` : '';
     await notificationService.notify({
       userId: rec.user,
       type: 'SOS',
-      title: 'Emergency SOS sent',
-      message: contacts.length
+      title: rec.lateDelivery ? 'Emergency SOS delivered late' : 'Emergency SOS sent',
+      message: (contacts.length
         ? `Your emergency contacts (${contacts.length}) have been alerted with your location.`
-        : 'SOS recorded, but you have no emergency contacts to alert. Add contacts in the app.',
-      metadata: { sosId: String(rec._id), triggerSource: rec.triggerSource },
+        : 'SOS recorded, but you have no emergency contacts to alert. Add contacts in the app.') + lateNote,
+      metadata: { sosId: String(rec._id), triggerSource: rec.triggerSource, lateDelivery: Boolean(rec.lateDelivery) },
       channelId: 'sos',
     });
   } catch (error) {
@@ -108,9 +120,31 @@ async function dispatchEscalation(rec) {
   }
 }
 
+/** The late-delivery fields for a request (see sos/sosLate.js). */
+function lateFields(clientCreatedAt, now) {
+  const d = decideLateness({ clientCreatedAt, now, lateAfterSeconds: cfg.sos.lateAfterSeconds, maxBackdateHours: cfg.sos.maxBackdateHours });
+  return {
+    triggeredAt: d.triggeredAt,
+    clientCreatedAt: d.ignored || !clientCreatedAt ? null : d.triggeredAt,
+    lateDelivery: d.late,
+    lateBySeconds: d.lateBySeconds,
+  };
+}
+
+/** What the phone reports about its own SMS attempt; only a confirmed 'sent' list suppresses a server text. */
+function normaliseSms(s) {
+  if (!s || typeof s !== 'object') return undefined;
+  return {
+    outcome: s.outcome || null,
+    sentTo: Array.isArray(s.sentTo) ? s.sentTo.map(String).slice(0, 20) : [],
+    total: Number.isFinite(Number(s.total)) ? Number(s.total) : 0,
+    attemptedAt: s.attemptedAt ? new Date(s.attemptedAt) : null,
+  };
+}
+
 class SOSService {
   /** Manual SOS. Active immediately; an existing pending check is escalated instead of duplicated. */
-  async createManual(userId, { location, journeyId, reason, idempotencyKey }, now = new Date()) {
+  async createManual(userId, { location, journeyId, reason, idempotencyKey, clientCreatedAt, clientSms }, now = new Date()) {
     if (idempotencyKey) {
       const same = await SOSHistory.findOne({ user: userId, idempotencyKey });
       if (same) return { record: view(same, now), duplicate: true };
@@ -118,7 +152,7 @@ class SOSService {
 
     const open = await findOpen(userId);
     if (open && open.status === 'pending_confirmation') {
-      const escalated = await this.escalate(open._id, { by: 'user' });
+      const escalated = await this.escalate(open._id, { by: 'user', clientSms, ...lateFields(clientCreatedAt, now) });
       return { record: view(escalated || open, now), duplicate: false, escalatedPending: true };
     }
     if (open && open.status === 'active') {
@@ -131,6 +165,7 @@ class SOSService {
       throw new ApiError(400, 'No emergency contacts found. Add at least one emergency contact before sending an SOS.');
     }
 
+    const late = lateFields(clientCreatedAt, now);
     let rec;
     try {
       rec = await SOSHistory.create({
@@ -140,7 +175,12 @@ class SOSService {
         type: 'manual',
         triggerSource: 'MANUAL',
         status: 'active',
-        triggeredAt: now,
+        triggeredAt: late.triggeredAt,
+        clientCreatedAt: late.clientCreatedAt,
+        lateDelivery: late.lateDelivery,
+        lateBySeconds: late.lateBySeconds,
+        receivedAt: now,
+        clientSms: normaliseSms(clientSms),
         escalatedAt: now,
         escalatedBy: 'user',
         reason: reason || 'Manual SOS',
@@ -220,10 +260,13 @@ class SOSService {
    * pending_confirmation -> active, atomically (so a user "Send SOS now" racing the deadline
    * escalates once). Returns the updated record, or null if it was no longer pending.
    */
-  async escalate(sosId, { by }, now = new Date()) {
+  async escalate(sosId, { by, clientSms, triggeredAt, clientCreatedAt, lateDelivery, lateBySeconds }, now = new Date()) {
+    const set = { status: 'active', escalatedAt: now, escalatedBy: by, triggeredAt: triggeredAt || now, receivedAt: now };
+    if (clientCreatedAt) Object.assign(set, { clientCreatedAt, lateDelivery: Boolean(lateDelivery), lateBySeconds: lateBySeconds || 0 });
+    if (clientSms) set.clientSms = normaliseSms(clientSms);
     const rec = await SOSHistory.findOneAndUpdate(
       { _id: sosId, status: 'pending_confirmation' },
-      { $set: { status: 'active', escalatedAt: now, escalatedBy: by, triggeredAt: now } },
+      { $set: set },
       { returnDocument: 'after' }
     );
     if (!rec) return null;

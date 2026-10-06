@@ -8,6 +8,7 @@ import { DataState } from '../../components/DataState';
 import { Toast } from '../../components/Toast';
 import { contactsService } from '../../services/contacts';
 import { formatApiError } from '../../services/apiClient';
+import { offerSmsPermissionOnce } from '../../utils/smsPermissionFlow';
 import { colors, spacing, shapes } from '../../theme/theme';
 
 export const ContactFormScreen = ({ navigation, route }) => {
@@ -85,6 +86,8 @@ export const ContactFormScreen = ({ navigation, route }) => {
 
       setToastMessage(id ? 'Contact updated successfully!' : 'Contact created successfully!');
       setToastType('success');
+      // First SOS setup: a new contact is the moment to explain (and ask for) the permission to text them offline.
+      if (!id) await offerSmsPermissionOnce();
       setTimeout(() => {
         navigation.goBack();
       }, 800);

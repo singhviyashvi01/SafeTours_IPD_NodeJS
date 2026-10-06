@@ -172,6 +172,7 @@ const updateEmergencySettings = async (userId, settingsData) => {
       'preferredLanguage',
       'receiveWeatherAlerts',
       'receiveDangerZoneAlerts',
+      'customSosMessage',
     ];
     settingsFields.forEach((field) => {
       if (settingsData.emergencySettings[field] !== undefined) {

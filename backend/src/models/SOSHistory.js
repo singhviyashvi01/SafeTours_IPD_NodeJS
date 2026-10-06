@@ -62,6 +62,22 @@ const sosHistorySchema = new mongoose.Schema(
     // Same key => same SOS. Sent by the client (Idempotency-Key header) or derived by the server.
     idempotencyKey: { type: String, default: undefined },
 
+    // Offline delivery. The phone queues an SOS while it has no signal and uploads it later.
+    //   lateDelivery    delivered more than sos.lateAfterSeconds after the user triggered it
+    //   clientCreatedAt when the user triggered it (phone clock, validated); triggeredAt mirrors it
+    //   receivedAt      when the server received it
+    //   clientSms       what the PHONE already texted to the contacts (the server skips those contacts)
+    lateDelivery: { type: Boolean, default: false },
+    lateBySeconds: { type: Number, default: 0 },
+    clientCreatedAt: { type: Date, default: null },
+    receivedAt: { type: Date, default: null },
+    clientSms: {
+      outcome: { type: String, default: null }, // sent | partial | composer_opened | failed | no_permission | none
+      sentTo: [{ type: String }],
+      total: { type: Number, default: 0 },
+      attemptedAt: { type: Date, default: null },
+    },
+
     notifiedContacts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'EmergencyContact' }],
     metadata: { type: Object, default: {} },
   },

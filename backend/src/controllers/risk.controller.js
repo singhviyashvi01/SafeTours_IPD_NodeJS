@@ -27,12 +27,12 @@ const getLiveRisk = asyncHandler(async (req, res) => {
 
 // GET /api/risk/cells?minLat&maxLat&minLng&maxLng[&minLevel][&includeUnknown][&limit]
 const getCells = asyncHandler(async (req, res) => {
-  const { minLat, maxLat, minLng, maxLng, minLevel, includeUnknown, limit } = req.query;
+  const { minLat, maxLat, minLng, maxLng, minLevel, includeUnknown, limit, compact } = req.query;
   if (Number(minLat) > Number(maxLat) || Number(minLng) > Number(maxLng)) {
     throw new ApiError(400, 'Bounding box is inverted (min must be <= max).');
   }
   const { cells, scanned, unknownCells, truncated } = await cellRisk.listCellsInBox({
-    minLat, maxLat, minLng, maxLng, minLevel, includeUnknown, limit,
+    minLat, maxLat, minLng, maxLng, minLevel, includeUnknown, limit, compact,
   });
   res.status(200).json({
     success: true,

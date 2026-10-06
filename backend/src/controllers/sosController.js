@@ -1,20 +1,27 @@
 const sosService = require('../services/sosService');
 const ApiResponse = require('../utils/apiResponse');
 const asyncHandler = require('../utils/asyncHandler');
+const smsService = require('../services/smsService');
 
 const keyOf = (req) => req.get('Idempotency-Key') || req.body.idempotencyKey || undefined;
 
 // POST /api/sos
 const createSOS = asyncHandler(async (req, res) => {
-  const { location, journeyId, reason } = req.body;
-  const out = await sosService.createManual(req.user._id, { location, journeyId, reason, idempotencyKey: keyOf(req) });
+  const { location, journeyId, reason, clientCreatedAt, sms } = req.body;
+  const out = await sosService.createManual(req.user._id, { location, journeyId, reason, idempotencyKey: keyOf(req), clientCreatedAt, clientSms: sms });
   const status = out.duplicate || out.escalatedPending ? 200 : 201;
   const message = out.escalatedPending
     ? 'Pending safety check escalated to an SOS.'
     : out.duplicate
       ? 'An SOS is already in progress; returning it.'
       : 'SOS sent.';
-  return res.status(status).json({ ...new ApiResponse(status, out.record, message), duplicate: Boolean(out.duplicate) });
+  // delivery.contactsSms tells the phone whether THIS server really texts contacts. 'not_configured' means
+  // it only logs, so the phone must text them itself (it must not assume the server did).
+  return res.status(status).json({
+    ...new ApiResponse(status, out.record, message),
+    duplicate: Boolean(out.duplicate),
+    delivery: { contactsSms: smsService.mode(), lateDelivery: Boolean(out.record?.lateDelivery) },
+  });
 });
 
 // GET /api/sos/pending

@@ -25,6 +25,7 @@ const cellsRules = [
   lng('maxLng'),
   query('minLevel').optional().isIn(['SAFE', 'LOW', 'MODERATE', 'HIGH', 'EXTREME']).withMessage('minLevel must be SAFE, LOW, MODERATE, HIGH or EXTREME.'),
   query('includeUnknown').optional().isBoolean().toBoolean(),
+  query('compact').optional().isBoolean().toBoolean(),
   query('limit').optional().isInt({ min: 1, max: 3000 }).toInt(),
 ];
 

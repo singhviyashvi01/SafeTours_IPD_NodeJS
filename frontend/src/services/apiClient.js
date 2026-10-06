@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { tokenStorage } from './tokenStorage';
+import { connectivityBus } from '../connectivity/connectivityBus';
 
 // Helper to extract Metro bundler host IP when running via Expo Go (on physical phone or emulator)
 const getMetroHostIp = () => {
@@ -68,6 +69,14 @@ export const setUnauthorizedCallback = callback => {
 // Request Interceptor: Attach JWT access token automatically
 apiClient.interceptors.request.use(
   async config => {
+    // "Offline mode" test switch: fail like a dead network, without touching the network.
+    if (connectivityBus.isForcedOffline()) {
+      const error = new Error('Offline mode is switched on');
+      error.code = 'FORCED_OFFLINE';
+      error.config = config;
+      return Promise.reject(error);
+    }
+    config.metadata = { startedAt: Date.now() };
     try {
       const token = await tokenStorage.getAccessToken();
       if (token) {
@@ -96,9 +105,22 @@ const processQueue = (error, token = null) => {
   failedQueue = [];
 };
 
+// Reports each outcome to the connectivity monitor. A response from the server (even 4xx) proves the server is
+// reachable; timeouts, network errors and 502/503/504 count as failures. Local/forced failures are not reported.
+const reportOutcome = (config, status, hadResponse) => {
+  if (!config || !config.metadata) return;
+  const ms = Date.now() - config.metadata.startedAt;
+  const failed = !hadResponse || status === 502 || status === 503 || status === 504;
+  connectivityBus.reportRequest({ ok: !failed, ms });
+};
+
 apiClient.interceptors.response.use(
-  response => response,
+  response => {
+    reportOutcome(response.config, response.status, true);
+    return response;
+  },
   async error => {
+    if (error.code !== 'FORCED_OFFLINE') reportOutcome(error.config, error.response?.status, Boolean(error.response));
     const originalRequest = error.config;
 
     // Do not attempt refresh on auth endpoints (login, signup, refresh-token)

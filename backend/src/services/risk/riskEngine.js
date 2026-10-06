@@ -16,40 +16,11 @@ const round1 = (n) => Math.round(n * 10) / 10;
 const round2 = (n) => Math.round(n * 100) / 100;
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
-/** Local calendar date (YYYY-MM-DD) and hour (0-23) in the configured timezone. */
-function localTime(now, timezone) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    hour12: false,
-  }).formatToParts(now);
-  const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
-  return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) % 24 };
-}
-
-function timeModifier(now, cfg = defaultConfig) {
-  const { date, hour } = localTime(now, cfg.timezone);
-
-  const band = cfg.timeModifier.bands.find((b) =>
-    b.from <= b.to ? hour >= b.from && hour < b.to : hour >= b.from || hour < b.to
-  );
-  const time = {
-    multiplier: band ? band.multiplier : 1,
-    label: band ? band.label : 'day',
-    localHour: hour,
-  };
-
-  const festival = cfg.festivals.find((f) => date >= f.start && date <= f.end) || null;
-  return {
-    time,
-    festival: festival ? { name: festival.name, multiplier: festival.riskBoost } : null,
-    combinedMultiplier: time.multiplier * (festival ? festival.riskBoost : 1),
-    localDate: date,
-  };
-}
+// Time-of-day / festival logic lives in shared/deviceCore.js so the phone applies exactly the same rules.
+const core = require('../../shared/deviceCore');
+const localTime = core.localTime;
+const timeModifier = (now, cfg = defaultConfig) =>
+  core.timeModifier(now, { timezone: cfg.timezone, timeModifier: cfg.timeModifier, festivals: cfg.festivals });
 
 function assessComponent(key, comp, feeds, nowMs, cfg) {
   const def = cfg.components[key];

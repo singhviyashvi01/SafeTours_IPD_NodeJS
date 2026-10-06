@@ -9,8 +9,12 @@ import { journeyService } from '../../services/journeys';
 import { sosService } from '../../services/sos';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSidebar } from '../../context/SidebarContext';
-import { smsService } from '../../services/smsService';
+import { triggerSos, cancelSos, sendSafeFollowUp, resendSms } from '../../services/sosDispatcher';
+import { useOutbox } from '../../context/OutboxContext';
+import { SosStatusCard } from '../../components/SosStatusCard';
 import { Toast } from '../../components/Toast';
+import { NearestHelpStrip } from '../../components/NearestHelpStrip';
+import { ensureWatching } from '../../utils/locationWatcher';
 
 export const SOSScreen = () => {
     const navigation = useNavigation();
@@ -30,6 +34,10 @@ export const SOSScreen = () => {
     const [statusMessage, setStatusMessage] = useState('SOS Status: Ready');
     const [sosError, setSosError] = useState(null);
 
+    const { sos } = useOutbox();
+    // The newest SOS that is not cancelled: pending, or delivered within the last 30 minutes.
+    const latest = sos.find((s) => !(s.row.payload && s.row.payload.cancelled) && (s.row.status !== 'sent' || Date.now() - s.row.createdAt < 30 * 60 * 1000)) || null;
+    const hasSos = Boolean(activeSosRecord || latest);
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
     useEffect(() => {
@@ -49,6 +57,7 @@ export const SOSScreen = () => {
         ).start();
 
         fetchCurrentLocation();
+        ensureWatching();
         loadActiveSOS();
         loadJourney();
 
@@ -129,49 +138,69 @@ export const SOSScreen = () => {
         return coords;
     };
 
-    // One idempotency key per SOS attempt, reused on retries, so a slow or repeated request can never
-    // create two SOS records.
-    const sosKeyRef = useRef(null);
-
+    // The SOS is written to the outbox first, then sent / texted (services/sosDispatcher.js). The screen does not wait
+    // for all of that: the status card below follows the real state (queued / SMS sent / delivered to server).
     const handleSOSPress = async () => {
         if (isSubmitting) return;
         setIsSubmitting(true);
         setSosError(null);
-        setStatusMessage('Sending Emergency SOS...');
-        sosKeyRef.current = sosKeyRef.current || sosService.newKey();
-
-        const location = await getSOSLocation();
-        const res = await sosService.create({
-            location: location || undefined,
-            journeyId: activeJourney?._id,
+        triggerSos({
+            source: 'manual',
             reason: 'Manual SOS button pressed by user.',
-            idempotencyKey: sosKeyRef.current,
+            journeyId: activeJourney?._id,
+            location: userLocation ? { ...userLocation, timestamp: new Date().toISOString() } : undefined,
+        }).catch((err) => {
+            setSosError(err.message || 'Could not start the SOS. Call your local emergency number.');
         });
-        setIsSubmitting(false);
+        // the row shows up in the outbox within a moment; keep the button locked just long enough to avoid a double tap
+        setTimeout(() => setIsSubmitting(false), 1500);
+    };
 
-        if (res.success) {
-            sosKeyRef.current = null;
-            setActiveSosRecord(res.data);
-            setStatusMessage('SOS ACTIVE: Emergency Contacts Notified');
-            Alert.alert('SOS Sent', res.duplicate ? 'An SOS was already in progress.' : 'Your emergency alert and location have been sent.');
-
-            // Also open the on-device SMS composer so contacts can be reached without server SMS.
-            smsService.sendSOSTriggerSMS(location).then((smsRes) => {
-                setToastType(smsRes.success ? 'success' : 'error');
-                setToastMessage(smsRes.message);
-            }).catch((err) => {
-                setToastType('error');
-                setToastMessage(err.message || 'Failed to open SMS composer.');
-            });
-        } else {
-            setStatusMessage('SOS Status: Ready');
-            const message = res.error?.message || 'Could not send emergency alert.';
-            setSosError(res.error?.status === 0 ? 'You are offline. Tap SOS again to retry: it will not be sent twice.' : message);
-            Alert.alert('SOS Error', message);
-        }
+    const confirmFollowUp = (result) => {
+        if (!result.offerSafeSms) return;
+        Alert.alert(
+            "Send an \"I'm safe\" text?",
+            `Your contacts may already have the SOS text (${result.textedPhones.length}). Send them a short message that you are safe?`,
+            [
+                { text: 'No', style: 'cancel' },
+                {
+                    text: "Send \"I'm safe\"",
+                    onPress: async () => {
+                        const state = await sendSafeFollowUp({ phones: result.textedPhones, triggeredAt: result.triggeredAt });
+                        setToastType(state.outcome === 'sent' ? 'success' : 'error');
+                        setToastMessage(
+                            state.outcome === 'sent' ? "\"I'm safe\" text sent."
+                            : state.outcome === 'composer_opened' ? 'Message opened: tap Send to tell your contacts you are safe.'
+                            : "Could not send the \"I'm safe\" text."
+                        );
+                    },
+                },
+            ]
+        );
     };
 
     const handleCancelSOS = async () => {
+        // A queued / delivered SOS of this phone: removed from the queue if unsent, cancelled on the server otherwise.
+        if (latest) {
+            Alert.alert('Cancel this SOS?', latest.row.status === 'sent' ? 'It was delivered. It will be cancelled on the server.' : 'It has not reached the server yet, so it will simply be removed.', [
+                { text: 'No', style: 'cancel' },
+                {
+                    text: 'Cancel SOS',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsSubmitting(true);
+                        const result = await cancelSos({ key: latest.row.idempotencyKey, id: latest.row.id, volatile: !latest.row.id });
+                        setIsSubmitting(false);
+                        setActiveSosRecord(null);
+                        setStatusMessage('SOS Status: Ready');
+                        Alert.alert('Cancelled', result.action === 'remove' ? 'The SOS was removed before it reached the server.' : 'The SOS is being cancelled on the server.');
+                        confirmFollowUp(result);
+                    },
+                },
+            ]);
+            return;
+        }
+
         const sosId = activeSosRecord?._id || activeSosRecord?.id;
         if (!sosId) {
             setActiveSosRecord(null);
@@ -242,24 +271,36 @@ export const SOSScreen = () => {
                 )}
                 
                 {/* Emergency Header */}
-                <View style={[styles.emergencyHeader, activeSosRecord && { backgroundColor: colors.error }]}>
+                <View style={[styles.emergencyHeader, hasSos && { backgroundColor: colors.error }]}>
                     <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                        <Ionicons name="warning" size={32} color={activeSosRecord ? colors.white : colors.error} />
+                        <Ionicons name="warning" size={32} color={hasSos ? colors.white : colors.error} />
                     </Animated.View>
                     <View style={styles.emergencyHeaderText}>
-                        <Text variant="headlineSm" style={[{ fontWeight: 'bold' }, activeSosRecord && { color: colors.white }]}>
-                            {statusMessage}
+                        <Text variant="headlineSm" style={[{ fontWeight: 'bold' }, hasSos && { color: colors.white }]}>
+                            {latest ? latest.view.headline : statusMessage}
                         </Text>
-                        <Text variant="labelMd" style={[{ opacity: 0.8, textTransform: 'uppercase' }, activeSosRecord && { color: colors.white }]}>
-                            {activeSosRecord ? "Active Emergency Tracking" : "Tap to broadcast immediately"}
+                        <Text variant="labelMd" style={[{ opacity: 0.8, textTransform: 'uppercase' }, hasSos && { color: colors.white }]}>
+                            {hasSos ? "Emergency in progress" : "Tap to send an SOS"}
                         </Text>
                     </View>
                 </View>
 
+                {/* The honest status of each SOS: queued on the phone / SMS sent / delivered to the server */}
+                {sos.slice(0, 2).filter((x) => !(x.row.payload && x.row.payload.cancelled)).map(({ row, view }) => (
+                    <SosStatusCard
+                        key={row.idempotencyKey}
+                        row={row}
+                        view={view}
+                        busy={isSubmitting}
+                        onCancel={latest && row === latest.row ? handleCancelSOS : undefined}
+                        onResend={() => resendSms({ key: row.idempotencyKey, id: row.id, volatile: !row.id })}
+                    />
+                ))}
+
                 {/* Big SOS Button */}
                 <View style={styles.sosButtonContainer}>
                     <TouchableOpacity 
-                        style={[styles.sosButton, activeSosRecord && { backgroundColor: colors['error-container'] }]}
+                        style={[styles.sosButton, hasSos && { backgroundColor: colors['error-container'] }]}
                         onPress={handleSOSPress}
                         activeOpacity={0.8}
                         disabled={isSubmitting}
@@ -268,15 +309,15 @@ export const SOSScreen = () => {
                             <ActivityIndicator size="large" color={colors.white} />
                         ) : (
                             <>
-                                <Ionicons name="warning" size={48} color={activeSosRecord ? colors.error : colors['on-error']} />
-                                <Text variant="headlineSm" style={[styles.sosButtonText, activeSosRecord && { color: colors.error }]}>
-                                    {activeSosRecord ? "SOS SENT" : "Send SOS"}
+                                <Ionicons name="warning" size={48} color={hasSos ? colors.error : colors['on-error']} />
+                                <Text variant="headlineSm" style={[styles.sosButtonText, hasSos && { color: colors.error }]}>
+                                    {!hasSos ? "Send SOS" : latest && latest.row.status !== 'sent' ? "SOS SAVED" : "SOS ACTIVE"}
                                 </Text>
                             </>
                         )}
                     </TouchableOpacity>
                     <Text variant="labelMd" style={styles.sosButtonHint}>
-                        Contacts & local authorities will be notified instantly
+                        Saved on this phone first. Your contacts are texted and the SOS is uploaded as soon as there is a connection.
                     </Text>
                 </View>
 
@@ -300,7 +341,7 @@ export const SOSScreen = () => {
                         <View style={styles.innerCardRow}>
                             <Text variant="labelMd" color={colors['on-surface-variant']}>Status</Text>
                             <Text variant="bodyMd" style={{ fontWeight: 'bold' }}>
-                                {activeSosRecord ? 'EMERGENCY_BROADCAST' : 'READY'}
+                                {hasSos ? 'EMERGENCY_BROADCAST' : 'READY'}
                             </Text>
                         </View>
                     </View>
@@ -310,6 +351,8 @@ export const SOSScreen = () => {
                         <Text variant="labelLg" style={styles.shareBtnText}>Share Status</Text>
                     </TouchableOpacity>
                 </View>
+
+                <NearestHelpStrip />
 
                 {/* Shadow Mode Card */}
                 <View style={styles.cardContainer}>
@@ -336,7 +379,7 @@ export const SOSScreen = () => {
                 </View>
 
                 {/* Cancel Area */}
-                {activeSosRecord && (
+                {hasSos && (
                     <View style={styles.cancelArea}>
                         <TouchableOpacity style={styles.cancelBtn} onPress={handleCancelSOS} disabled={isSubmitting}>
                             <Text variant="labelLg" color={colors.error} style={{ fontWeight: 'bold' }}>

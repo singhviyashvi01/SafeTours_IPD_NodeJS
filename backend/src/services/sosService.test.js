@@ -240,3 +240,94 @@ test('active SOS older than 12 h is auto-closed so it cannot block new SOS forev
   assert.equal((await sosService.processDue(later)).autoResolved, 1);
   assert.equal(SOS.docs[0].status, 'resolved');
 });
+
+// ── Phase 6B: late delivery and device-SMS dedupe ───────────────────────────────────────────────
+const settle = () => new Promise((r) => setTimeout(r, 20));
+const addContactPhone = (phone) => Contacts.create({ user: USER, phone });
+const createWithSms = async (sms) => {
+  const out = await sosService.createManual(USER, { location: coords, clientSms: sms }, NOW);
+  await settle();
+  return out;
+};
+
+test('late delivery: an SOS queued 10 min ago is stored with its ORIGINAL time, flagged lateDelivery, and the texts say so', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  const original = new Date(NOW.getTime() - 10 * 60000);
+  const out = await sosService.createManual(USER, { location: coords, idempotencyKey: 'late-key-0001', clientCreatedAt: original.toISOString() }, NOW);
+  await settle();
+
+  assert.equal(out.record.lateDelivery, true);
+  assert.equal(new Date(out.record.triggeredAt).getTime(), original.getTime());
+  assert.equal(out.record.lateBySeconds, 600);
+  assert.equal(new Date(out.record.receivedAt).getTime(), NOW.getTime());
+  assert.equal(out.record.status, 'active'); // a late SOS is still a live SOS: contacts ARE notified
+  assert.equal(calls.sms.length, 1);
+  assert.equal(calls.sms[0].lateDelivery, true);
+  assert.equal(new Date(calls.sms[0].triggeredAt).getTime(), original.getTime());
+  assert.match(calls.notify[0].title, /delivered late/i);
+  assert.match(calls.notify[0].message, /triggered at 03 Oct 17:20 IST/); // original time (11:50 UTC) in IST
+  assert.match(calls.notify[0].message, /10 min late/);
+});
+
+test('an SOS delivered within the grace window is not "late", but keeps the original trigger time', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  const original = new Date(NOW.getTime() - 30000);
+  const out = await sosService.createManual(USER, { location: coords, clientCreatedAt: original.toISOString() }, NOW);
+  assert.equal(out.record.lateDelivery, false);
+  assert.equal(new Date(out.record.triggeredAt).getTime(), original.getTime());
+});
+
+test('an untrustworthy phone clock (future or ancient createdAt) is ignored: triggeredAt falls back to the server time', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  const future = await sosService.createManual(USER, { location: coords, clientCreatedAt: new Date(NOW.getTime() + 3600000).toISOString() }, NOW);
+  assert.equal(future.record.lateDelivery, false);
+  assert.equal(new Date(future.record.triggeredAt).getTime(), NOW.getTime());
+  reset();
+  await addContactPhone('+919800000001');
+  const ancient = await sosService.createManual(USER, { location: coords, clientCreatedAt: new Date(NOW.getTime() - 5 * 86400000).toISOString() }, NOW);
+  assert.equal(ancient.record.lateDelivery, false);
+  assert.equal(new Date(ancient.record.triggeredAt).getTime(), NOW.getTime());
+});
+
+test('the same queued SOS uploaded twice (same key) makes one record and one set of texts', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  const body = { location: coords, idempotencyKey: 'late-key-0002', clientCreatedAt: new Date(NOW.getTime() - 5 * 60000).toISOString() };
+  const a = await sosService.createManual(USER, body, NOW);
+  const b = await sosService.createManual(USER, body, at(30));
+  await settle();
+  assert.equal(b.duplicate, true);
+  assert.equal(b.record.id, a.record.id);
+  assert.equal(SOS.docs.length, 1);
+  assert.equal(calls.sms.length, 1);
+});
+
+test('no double texting: contacts the phone already texted (confirmed send) are skipped by the server, the rest are texted', async () => {
+  reset();
+  await addContactPhone('+91 98000 00001');
+  await addContactPhone('+919800000002');
+  await createWithSms({ outcome: 'partial', sentTo: ['09800000001'], total: 2 });
+  assert.equal(calls.sms.length, 1);
+  assert.deepEqual(calls.sms[0].contacts.map((c) => c.phone), ['+919800000002']);
+  assert.equal(SOS.docs[0].metadata.sms.skippedBecauseDeviceSent, 1);
+  assert.equal(SOS.docs[0].notifiedContacts.length, 2); // both were notified, one of them by the phone
+});
+
+test('if the phone texted everyone the server sends no SMS at all, but still pushes and stores the notification', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  await createWithSms({ outcome: 'sent', sentTo: ['+919800000001'], total: 1 });
+  assert.equal(calls.sms.length, 0);
+  assert.equal(calls.notify.length, 1);
+});
+
+test('a composer that was only OPENED proves nothing: the server still texts every contact', async () => {
+  reset();
+  await addContactPhone('+919800000001');
+  await createWithSms({ outcome: 'composer_opened', sentTo: [], total: 1 });
+  assert.equal(calls.sms.length, 1);
+  assert.equal(calls.sms[0].contacts.length, 1);
+});

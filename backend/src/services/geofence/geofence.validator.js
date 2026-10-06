@@ -22,6 +22,18 @@ const validateSyncGeofenceRules = [
   ...reading('locations.*.'),
 ];
 
+// POST /api/geofence/events: events the phone raised offline with the shared state machine. History only.
+const validateDeviceEventsRules = [
+  body('events').isArray({ min: 1, max: 200 }).withMessage('events must be an array of 1 to 200 events.'),
+  body('events.*.event').isIn(['ENTER', 'EXIT', 'ZONE_CHANGED']).withMessage('event must be ENTER, EXIT or ZONE_CHANGED.'),
+  body('events.*.timestamp').isISO8601().withMessage('timestamp must be ISO 8601.'),
+  body('events.*.h3Index').isString().isLength({ min: 10, max: 20 }).withMessage('h3Index is required.'),
+  body('events.*.riskLevel').isString().isLength({ min: 1, max: 20 }).withMessage('riskLevel is required.'),
+  body('events.*.totalRisk').optional({ nullable: true }).isFloat({ min: 0, max: 100 }).toFloat(),
+  body('events.*.latitude').isFloat({ min: -90, max: 90 }).toFloat(),
+  body('events.*.longitude').isFloat({ min: -180, max: 180 }).toFloat(),
+];
+
 const validateGeofenceQueryRules = [];
 
 const validateGeofenceRequest = (req, res, next) => {
@@ -37,6 +49,7 @@ const validateGeofenceRequest = (req, res, next) => {
 };
 
 module.exports = {
+  validateDeviceEventsRules,
   validateCheckGeofenceRules,
   validateSyncGeofenceRules,
   validateGeofenceQueryRules,

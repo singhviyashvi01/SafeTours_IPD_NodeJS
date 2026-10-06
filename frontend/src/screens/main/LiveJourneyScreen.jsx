@@ -13,8 +13,10 @@ import { riskService } from '../../services/riskService';
 import { isDangerLevel } from '../../utils/riskLevels';
 import { startBackgroundGeofence, stopBackgroundGeofence } from '../../utils/backgroundGeofence';
 import { geofenceManager } from '../../utils/geofenceManager';
+import { useConnectivity } from '../../context/ConnectivityContext';
+import { useOfflineData } from '../../context/OfflineDataContext';
 
-import { smsService } from '../../services/smsService';
+import { triggerSos } from '../../services/sosDispatcher';
 import { Toast } from '../../components/Toast';
 
 const { width, height } = Dimensions.get('window');
@@ -51,6 +53,18 @@ export const LiveJourneyScreen = () => {
     useEffect(() => {
         loadInitialState();
     }, []);
+
+    // Save the destination's risk cells and nearby places on the phone while we still have a connection, so the
+    // journey can finish with the on-device check if the signal drops. Once per journey, only when ONLINE.
+    const conn = useConnectivity();
+    const offlineData = useOfflineData();
+    const preparedFor = useRef(null);
+    useEffect(() => {
+        const dest = activeJourney?.destination?.coordinates; // GeoJSON [lng, lat]
+        if (!activeJourney?._id || !Array.isArray(dest) || conn.state !== 'ONLINE' || preparedFor.current === activeJourney._id) return;
+        preparedFor.current = activeJourney._id;
+        offlineData?.prepareDestination(Number(dest[1]), Number(dest[0]), activeJourney._id);
+    }, [activeJourney?._id, conn.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Shadow Mode is enforced by the SERVER: when the ETA passes it asks "Are you okay?" (the global
     // prompt in SafetyCheckProvider) and alerts your contacts if you do not answer. No client timers here.
@@ -203,35 +217,26 @@ export const LiveJourneyScreen = () => {
         if (res.success && res.journey) {
             setActiveJourney(res.journey);
             Alert.alert('Journey Updated', res.message || 'Your expected arrival time has been updated.');
+        } else if (res.queued) {
+            Alert.alert('Saved offline', res.message);
         } else {
             setErrorMessage(res.error?.message || 'Failed to update journey.');
         }
     };
 
+    // Written to the outbox first, then sent / texted (services/sosDispatcher.js). The SOS screen shows the real state.
     const handleTriggerSOS = async () => {
-        const res = await sosService.create({
+        triggerSos({
+            source: 'journey',
+            reason: 'SOS triggered during an active journey.',
+            journeyId: activeJourney?._id,
             location: Number.isFinite(userLocation?.latitude)
                 ? { latitude: userLocation.latitude, longitude: userLocation.longitude, timestamp: new Date().toISOString() }
                 : undefined,
-            journeyId: activeJourney?._id,
-            reason: 'SOS triggered during an active journey.',
-            idempotencyKey: sosKeyRef.current,
+        }).catch((err) => {
+            Alert.alert('SOS problem', err.message || 'Could not start the SOS. Call your local emergency number.');
         });
-
-        if (res.success) {
-            sosKeyRef.current = sosService.newKey();
-            navigation.navigate('SOS');
-            // Trigger native SMS composer with emergency contacts
-            smsService.sendSOSTriggerSMS(userLocation).then((smsRes) => {
-                setToastType(smsRes.success ? 'success' : 'error');
-                setToastMessage(smsRes.message);
-            }).catch((err) => {
-                setToastType('error');
-                setToastMessage(err.message || 'Failed to open SMS composer.');
-            });
-        } else {
-            Alert.alert('SOS Failure', res.error?.message || 'Could not trigger SOS.');
-        }
+        navigation.navigate('SOS');
     };
 
     // Calculate arrival time string

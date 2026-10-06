@@ -19,6 +19,8 @@ const communityRoutes = require('./routes/community.routes');
 const geofenceRoutes = require('./services/geofence/geofence.routes');
 const riskRoutes = require('./routes/risk.routes');
 const adminRoutes = require('./routes/admin.routes');
+const nearbyRoutes = require('./routes/nearby.routes');
+const metaRoutes = require('./routes/meta.routes');
 const { verifyJWT } = require('./middleware/authMiddleware');
 
 const { errorMiddleware } = require('./middleware/errorMiddleware');
@@ -83,6 +85,7 @@ app.get('/health', (req, res) => {
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
+app.use('/api', metaRoutes); // /api/health and /api/config/client (no auth)
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/profile', profileRoutes);
 
@@ -103,6 +106,7 @@ app.use('/api/crowd', verifyJWT, crowdRoutes);
 
 app.use('/api/risk', riskRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/nearby', nearbyRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/geofence', geofenceRoutes);
 

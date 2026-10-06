@@ -16,6 +16,8 @@ export const dashboardService = {
 
         return {
             risk: riskResult.data,
+            source: riskResult.source || 'server',
+            fetchedAt: riskResult.fetchedAt || Date.now(),
             weather: weatherResponse?.data?.data || null,
         };
     },

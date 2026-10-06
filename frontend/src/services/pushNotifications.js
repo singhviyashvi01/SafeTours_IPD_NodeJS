@@ -39,6 +39,12 @@ export async function setupNotificationChannels() {
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     bypassDnd: false,
   });
+  await Notifications.setNotificationChannelAsync('geofence', {
+    name: 'High-risk area alerts (offline)',
+    importance: Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 300, 200, 300],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
   await Notifications.setNotificationChannelAsync('sos', {
     name: 'SOS alerts',
     importance: Notifications.AndroidImportance.MAX,

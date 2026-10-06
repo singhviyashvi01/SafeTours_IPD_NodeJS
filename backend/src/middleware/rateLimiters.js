@@ -26,6 +26,8 @@ module.exports = {
   sosCreate: userLimiter({ windowMs: 60 * 1000, limit: 6, message: 'Too many SOS requests. If this is an emergency call your local emergency number.' }),
   // community reports: anti-spam
   communityReport: userLimiter({ windowMs: 60 * 60 * 1000, limit: 10, message: 'Report limit reached (10 per hour). Please try again later.' }),
+  // nearby places: the app refreshes only on a new cell / >1 km, so 20 per minute is generous
+  nearby: userLimiter({ windowMs: 60 * 1000, limit: 20, message: 'Too many nearby-services requests, slow down.' }),
   // geofence checks: the app throttles to ~1 per 30 s, allow headroom for retries
   geofence: userLimiter({ windowMs: 60 * 1000, limit: 30, message: 'Too many location checks, slow down.' }),
 };

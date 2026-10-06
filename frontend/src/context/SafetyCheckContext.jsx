@@ -1,12 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, Modal, StyleSheet, TouchableOpacity, Vibration, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import { Text } from '../components/Text';
 import { useAuth } from './AuthContext';
 import { sosService } from '../services/sos';
 import { geofenceManager } from '../utils/geofenceManager';
+import { triggerSos } from '../services/sosDispatcher';
+import { ensureWatching, stopWatching } from '../utils/locationWatcher';
 import { registerForPush, addNotificationListeners } from '../services/pushNotifications';
 
 /**
@@ -102,27 +103,24 @@ export const SafetyCheckProvider = ({ children }) => {
     });
   }, [isAuthenticated, refresh]);
 
-  // Foreground location watch -> backend geofence check (throttled by geofenceManager).
+  // One shared foreground GPS watch (utils/locationWatcher): feeds the geofence check, nearby services and
+  // maps. It starts only if location permission is already granted, and is re-tried when the app returns
+  // to the foreground (screens also call ensureWatching() right after they obtain permission).
   useEffect(() => {
-    if (!isAuthenticated) return undefined;
-    let sub = null;
-    let cancelled = false;
-    (async () => {
-      const perm = await Location.getForegroundPermissionsAsync();
-      if (perm.status !== 'granted' || cancelled) return;
-      sub = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 25 },
-        (loc) => geofenceManager.submit(loc)
-      );
-    })().catch((e) => console.log('[geofence] watch not started:', e.message));
-
+    if (!isAuthenticated) {
+      stopWatching();
+      return undefined;
+    }
+    ensureWatching();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') ensureWatching();
+    });
     const off = geofenceManager.on('result', (r) => {
       if (r?.safetyCheck) applyPending(r.safetyCheck);
     });
     return () => {
-      cancelled = true;
       off();
-      sub?.remove();
+      sub.remove();
     };
   }, [isAuthenticated, applyPending]);
 
@@ -183,7 +181,27 @@ export const SafetyCheckProvider = ({ children }) => {
   };
 
   const imSafe = (extendMinutes) => answer(() => sosService.cancel(check.id, { reason: 'User confirmed they are safe', extendMinutes }));
-  const sendNow = () => answer(() => sosService.confirm(check.id));
+  // "Send SOS now": if the server cannot be reached the phone makes the SOS itself (outbox first, then the contacts
+  // are texted from the phone). The server's own deadline still escalates the check if the phone never gets through.
+  const sendNow = async () => {
+    if (!check || busy) return;
+    setBusy(true);
+    setError(null);
+    answeredRef.current = true;
+    const res = await sosService.confirm(check.id);
+    if (!res.success && res.error?.status === 0) {
+      triggerSos({ source: 'safety_check', reason: 'The user confirmed they need help (no connection to the server).' }).catch(() => {});
+      setBusy(false);
+      setCheck(null);
+      return;
+    }
+    setBusy(false);
+    if (res.success) setCheck(null);
+    else {
+      answeredRef.current = false;
+      setError(res.error?.message || 'Could not send your answer. Tap again to retry.');
+    }
+  };
 
   const isEta = check?.triggerSource === 'SHADOW_MODE';
 

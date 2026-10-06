@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { authService } from '../services/auth';
 import { tokenStorage } from '../services/tokenStorage';
+import { session } from '../services/session';
 import { setUnauthorizedCallback, setAuthTokenHeader, formatApiError } from '../services/apiClient';
 
 const AuthContext = createContext({});
@@ -10,6 +11,11 @@ export const AuthProvider = ({ children }) => {
   const [tokens, setTokens] = useState(null);
   const [isProfileComplete, setIsProfileComplete] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+
+  // The outbox only uploads rows that belong to the signed-in user.
+  useEffect(() => {
+    session.set(user ? user._id || user.id || null : null);
+  }, [user]);
   const [authError, setAuthError] = useState(null);
 
   const clearError = () => setAuthError(null);

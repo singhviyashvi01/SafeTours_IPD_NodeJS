@@ -93,7 +93,7 @@ async function getRiskAt(lat, lng, opts) {
  * UNKNOWN cells are excluded unless includeUnknown is set (an area with no data is not drawn).
  * Result shape matches what the map component already renders (polygon + riskLevel).
  */
-async function listCellsInBox({ minLat, maxLat, minLng, maxLng, minLevel = 'LOW', includeUnknown = false, limit = 1500 }) {
+async function listCellsInBox({ minLat, maxLat, minLng, maxLng, minLevel = 'LOW', includeUnknown = false, limit = 1500, compact = false }) {
   const minRank = LEVEL_ORDER.indexOf(String(minLevel).toUpperCase());
   if (minRank < 0) throw new ApiError(400, `minLevel must be one of ${LEVEL_ORDER.join(', ')}`);
 
@@ -117,6 +117,25 @@ async function listCellsInBox({ minLat, maxLat, minLng, maxLng, minLevel = 'LOW'
       unknownCount += 1;
       if (!includeUnknown) continue;
     } else if (LEVEL_ORDER.indexOf(result.level) < minRank) {
+      continue;
+    }
+    if (compact) {
+      // Lean row for on-device caching: no polygon (the phone derives it from the H3 index).
+      // baseRisk lets the phone re-apply the time-of-day modifier itself while offline.
+      const components = {};
+      for (const k of COMPONENT_KEYS) components[k] = result.breakdown[k].score;
+      out.push({
+        h3Index: doc.h3Index,
+        riskLevel: result.level,
+        totalRiskScore: result.totalRisk,
+        baseRisk: result.baseRisk,
+        dataConfidence: result.dataConfidence,
+        lowConfidence: result.lowConfidence,
+        demo: result.demo,
+        topFactor: result.topFactor,
+        components,
+      });
+      if (out.length >= cap) break;
       continue;
     }
     out.push({

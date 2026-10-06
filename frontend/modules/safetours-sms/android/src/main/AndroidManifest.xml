@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Phones only: a tablet without a radio can still install the app and uses the composer instead. -->
+  <uses-feature android:name="android.hardware.telephony" android:required="false" />
+</manifest>

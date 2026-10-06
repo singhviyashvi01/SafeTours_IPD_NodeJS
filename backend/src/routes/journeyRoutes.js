@@ -3,6 +3,7 @@ const router = express.Router();
 
 // Import existing auth middleware
 const { verifyJWT } = require('../middleware/authMiddleware');
+const { idempotent } = require('../middleware/idempotency');
 
 // Import controller methods
 const {
@@ -27,6 +28,7 @@ const {
 router.post(
   '/start',
   verifyJWT,
+  idempotent('journey.start'),
   validateStartJourney,
   validateJourneyRequest,
   startJourney
@@ -41,6 +43,7 @@ router.post(
 router.post(
   '/update/:id',
   verifyJWT,
+  idempotent('journey.update'),
   validateUpdateJourney,
   validateJourneyRequest,
   updateJourney
@@ -54,6 +57,7 @@ router.post(
 router.post(
   '/end/:id',
   verifyJWT,
+  idempotent('journey.end'),
   validateUpdateJourneyStatus,
   validateJourneyRequest,
   endJourney

@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Switch } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Linking } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
+import Constants from 'expo-constants';
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { colors, spacing, shapes } from '../../theme/theme';
@@ -8,14 +11,33 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { profileService } from '../../services/profile';
 import { useSidebar } from '../../context/SidebarContext';
+import { useConnectivity } from '../../context/ConnectivityContext';
+import { useOfflineData } from '../../context/OfflineDataContext';
+import { connectivityStore } from '../../connectivity/connectivityStore';
+import { locationBus } from '../../utils/locationBus';
+import { formatAge } from '../../utils/geo';
+import { OutboxSettings, EmergencyAlertsSettings } from '../../components/OfflineAlertSettings';
+
+const STATE_COLOR = { ONLINE: '#166534', WEAK: '#b26a00', OFFLINE: colors.error };
+const STATE_TEXT = { ONLINE: 'Online', WEAK: 'Weak', OFFLINE: 'Offline' };
+
+const formatBytes = (n) => {
+    if (!Number.isFinite(n) || n <= 0) return '0 KB';
+    if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+};
+const ago = (ts) => (ts ? formatAge(Date.now() - ts) : 'never');
 
 export const SettingsScreen = () => {
     const navigation = useNavigation();
     const { logout } = useAuth();
     const { toggleDrawer } = useSidebar();
-    const [offlineMode, setOfflineMode] = useState(false);
-    const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-    const [locationPermissions, setLocationPermissions] = useState(true);
+    const conn = useConnectivity();
+    const offline = useOfflineData();
+    const [notifStatus, setNotifStatus] = useState(null);
+    const [locStatus, setLocStatus] = useState(null);
+    const [radiusM, setRadiusM] = useState(5000);
+    const [checking, setChecking] = useState(false);
     const [profile, setProfile] = useState(null);
 
     useEffect(() => {
@@ -30,6 +52,58 @@ export const SettingsScreen = () => {
         const unsubscribe = navigation.addListener('focus', loadProfile);
         return unsubscribe;
     }, [navigation]);
+
+    const loadPermissions = useCallback(async () => {
+        try {
+            setNotifStatus((await Notifications.getPermissionsAsync()).status);
+            setLocStatus((await Location.getForegroundPermissionsAsync()).status);
+        } catch (e) {
+            /* leave as unknown */
+        }
+    }, []);
+
+    useEffect(() => {
+        loadPermissions();
+        offline?.refreshStats();
+        const unsubscribe = navigation.addListener('focus', () => {
+            loadPermissions();
+            offline?.refreshStats();
+        });
+        return unsubscribe;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navigation, loadPermissions]);
+
+    const here = locationBus.getLast();
+    const est = here && offline ? offline.estimate(here.latitude, here.longitude, radiusM) : null;
+    const progress = offline?.progress;
+    const stats = offline?.stats;
+
+    const startDownload = () => {
+        if (!here) return;
+        Alert.alert(
+            'Download this area',
+            `Radius ${radiusM / 1000} km: about ${est.cells.toLocaleString()} risk cells (~${formatBytes(est.riskBytes)}) and nearby places from about ${est.nearbyCenters} lookups (up to ~${est.geoapifyCredits} provider credits). Continue?`,
+            [{ text: 'Cancel', style: 'cancel' }, { text: 'Download', onPress: () => offline.downloadArea(here.latitude, here.longitude, radiusM) }]
+        );
+    };
+
+    const confirmClear = () =>
+        Alert.alert(
+            'Clear cache',
+            'Removes downloaded risk cells and nearby places. Anything recorded offline and not yet uploaded is kept.',
+            [{ text: 'Cancel', style: 'cancel' }, { text: 'Clear', style: 'destructive', onPress: () => offline.clearCache() }]
+        );
+
+    const checkConnection = async () => {
+        setChecking(true);
+        try {
+            await connectivityStore.checkNow();
+        } finally {
+            setChecking(false);
+        }
+    };
+
+    const permissionText = (status) => (status === 'granted' ? 'Allowed' : status === 'denied' ? 'Blocked' : status ? 'Not asked yet' : '...');
 
     const SettingsRow = ({ icon, title, subtitle, rightElement, onPress }) => (
         <TouchableOpacity 
@@ -79,74 +153,124 @@ export const SettingsScreen = () => {
 
                 <SectionHeader title="NETWORK & CONNECTION" />
                 <View style={styles.sectionCard}>
-                    <SettingsRow 
-                        icon="cellular" 
-                        title="Connectivity Status" 
-                        subtitle="Connected to 5G network"
-                        rightElement={<Text variant="labelMd" color="#166534">Excellent</Text>}
+                    <SettingsRow
+                        icon="cellular"
+                        title="Connectivity Status"
+                        subtitle={(conn.reasons || []).join(' · ') || (conn.lastPingMs ? `Server reply in ${conn.lastPingMs} ms` : 'Checking...')}
+                        rightElement={<Text variant="labelMd" style={{ color: STATE_COLOR[conn.state] || colors.error, fontWeight: 'bold' }}>{STATE_TEXT[conn.state] || conn.state}</Text>}
+                        onPress={checkConnection}
                     />
                     <View style={styles.divider} />
-                    <SettingsRow 
-                        icon="cloud-offline" 
-                        title="Offline Mode" 
-                        subtitle="Download maps for use without data"
+                    <SettingsRow
+                        icon="cloud-offline"
+                        title="Offline Mode"
+                        subtitle="Test switch: the app behaves as if there is no network (cached data and on-device checks only)"
                         rightElement={
-                            <Switch 
-                                value={offlineMode} 
-                                onValueChange={setOfflineMode} 
+                            <Switch
+                                value={Boolean(conn.forced)}
+                                onValueChange={(v) => connectivityStore.setForcedOffline(v)}
                                 trackColor={{ false: colors.outline, true: colors.primary }}
                             />
                         }
                     />
                 </View>
+                {checking && <Text variant="labelMd" color={colors['on-surface-variant']} style={{ marginBottom: spacing.sm }}>Checking the server...</Text>}
 
                 <SectionHeader title="PREFERENCES" />
                 <View style={styles.sectionCard}>
-                    <SettingsRow 
-                        icon="notifications" 
-                        title="Notifications" 
-                        subtitle="Alerts, warnings, and system updates"
+                    <SettingsRow
+                        icon="notifications"
+                        title="Notifications"
+                        subtitle={`Permission: ${permissionText(notifStatus)}. Alerts, warnings and system updates`}
                         onPress={() => navigation.navigate('Notifications')}
-                        rightElement={
-                            <Switch 
-                                value={notificationsEnabled} 
-                                onValueChange={setNotificationsEnabled} 
-                                trackColor={{ false: colors.outline, true: colors.primary }}
-                            />
-                        }
                     />
                     <View style={styles.divider} />
-                    <SettingsRow 
-                        icon="location" 
-                        title="Location Permissions" 
-                        subtitle="Required for live tracking and SOS"
-                        rightElement={
-                            <Switch 
-                                value={locationPermissions} 
-                                onValueChange={setLocationPermissions} 
-                                trackColor={{ false: colors.outline, true: colors.primary }}
-                            />
-                        }
+                    <SettingsRow
+                        icon="location"
+                        title="Location Permission"
+                        subtitle={`${permissionText(locStatus)}. Required for live tracking and SOS`}
+                        onPress={() => Linking.openSettings()}
                     />
                 </View>
 
                 <SectionHeader title="DATA & STORAGE" />
                 <View style={styles.sectionCard}>
-                    <SettingsRow 
-                        icon="server" 
-                        title="Storage Usage" 
-                        subtitle="Manage downloaded offline maps"
-                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>1.2 GB</Text>}
-                        onPress={() => {}}
+                    <SettingsRow
+                        icon="map"
+                        title="Offline risk data"
+                        subtitle={stats ? `${stats.risk.cells.toLocaleString()} cells in ${stats.risk.regions} area(s). Updated ${ago(stats.risk.newestFetchedAt)}` : 'Loading...'}
+                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>{stats ? formatBytes(stats.risk.bytes) : ''}</Text>}
                     />
                     <View style={styles.divider} />
-                    <SettingsRow 
-                        icon="trash-bin" 
-                        title="Clear Cache" 
-                        subtitle="Free up space by removing temp data"
-                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>342 MB</Text>}
-                        onPress={() => {}}
+                    <SettingsRow
+                        icon="medkit"
+                        title="Offline nearby places"
+                        subtitle={stats ? `${stats.nearby.entries} area(s) cached` : 'Loading...'}
+                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>{stats ? formatBytes(stats.nearby.bytes) : ''}</Text>}
                     />
+                    <View style={styles.divider} />
+                    <SettingsRow
+                        icon="server"
+                        title="Upload queue and database"
+                        subtitle={stats ? `${stats.log.waiting || 0} item(s) waiting to upload, ${stats.log.dead || 0} rejected (see Upload queue below)` : 'Loading...'}
+                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>{stats ? `DB ${formatBytes(stats.dbBytes)}` : ''}</Text>}
+                    />
+                    <View style={styles.divider} />
+                    <SettingsRow
+                        icon="trash-bin"
+                        title="Clear Cache"
+                        subtitle="Remove downloaded risk cells and nearby places"
+                        onPress={confirmClear}
+                    />
+                </View>
+
+                <OutboxSettings />
+                <EmergencyAlertsSettings />
+
+                <SectionHeader title="DOWNLOAD THIS AREA" />
+                <View style={[styles.sectionCard, { padding: spacing.md }]}>
+                    <Text variant="bodyMd" color={colors['on-surface-variant']} style={{ marginBottom: spacing.sm }}>
+                        {here ? 'Saves risk cells and nearby hospitals / police around where you are, for use without data.' : 'Waiting for your location...'}
+                    </Text>
+                    <View style={styles.radiusRow}>
+                        {(offline?.radiiM || []).map((r) => (
+                            <TouchableOpacity key={r} style={[styles.radiusChip, radiusM === r && styles.radiusChipOn]} onPress={() => setRadiusM(r)} disabled={progress?.running}>
+                                <Text variant="labelMd" color={radiusM === r ? colors.white : colors.primary}>{r / 1000} km</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                    {est && (
+                        <Text variant="labelMd" color={colors['on-surface-variant']} style={{ marginVertical: spacing.sm }}>
+                            Estimate: ~{est.cells.toLocaleString()} cells (~{formatBytes(est.riskBytes)}); places need ~{est.nearbyCenters} lookups (up to ~{est.geoapifyCredits} provider credits).
+                        </Text>
+                    )}
+                    {progress?.running ? (
+                        <View>
+                            <Text variant="labelMd">
+                                {progress.phase === 'risk' ? 'Downloading risk cells' : 'Downloading nearby places'}
+                                {progress.total ? ` (${progress.done}/${progress.total})` : '...'}
+                            </Text>
+                            <TouchableOpacity style={[styles.downloadBtn, { backgroundColor: colors.error }]} onPress={offline.cancelDownload}>
+                                <Text variant="labelLg" color={colors.white}>Cancel</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            style={[styles.downloadBtn, (!here || conn.state === 'OFFLINE') && { opacity: 0.4 }]}
+                            onPress={startDownload}
+                            disabled={!here || conn.state === 'OFFLINE'}
+                        >
+                            <Text variant="labelLg" color={colors.white}>{conn.state === 'OFFLINE' ? 'Go online to download' : 'Download this area'}</Text>
+                        </TouchableOpacity>
+                    )}
+                    {progress?.error && <Text variant="labelMd" color={colors.error} style={{ marginTop: spacing.sm }}>{progress.error}</Text>}
+                    {progress?.result && !progress.running && (
+                        <Text variant="labelMd" color={colors['on-surface-variant']} style={{ marginTop: spacing.sm }}>
+                            {progress.result.aborted
+                                ? 'Download cancelled (what was fetched is kept).'
+                                : `Saved ${progress.result.risk.cells.toLocaleString()} risk cells${progress.result.risk.truncated ? ' (some tiles were truncated by the server)' : ''}; places stored for ${progress.result.places.stored} of ${progress.result.places.total} spots${progress.result.places.failed ? ` (${progress.result.places.failed} had no data)` : ''}.`}
+                        </Text>
+                    )}
                 </View>
 
                 <SectionHeader title="ABOUT" />
@@ -154,7 +278,7 @@ export const SettingsScreen = () => {
                     <SettingsRow 
                         icon="information-circle" 
                         title="App Version" 
-                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>v1.0.4 (Build 42)</Text>}
+                        rightElement={<Text variant="labelMd" color={colors['on-surface-variant']}>{`v${Constants.expoConfig?.version || '?'}${Constants.expoConfig?.android?.versionCode ? ` (${Constants.expoConfig.android.versionCode})` : ''}`}</Text>}
                     />
                     <View style={styles.divider} />
                     <SettingsRow 
@@ -256,6 +380,10 @@ const styles = StyleSheet.create({
         backgroundColor: colors['outline-variant'],
         marginLeft: 72,
     },
+    radiusRow: { flexDirection: 'row', gap: spacing.sm },
+    radiusChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: shapes.roundedPill, borderWidth: 1, borderColor: colors.primary },
+    radiusChipOn: { backgroundColor: colors.primary },
+    downloadBtn: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.md, backgroundColor: colors.primary, borderRadius: shapes.roundedPill, marginTop: spacing.sm },
     logoutBtn: {
         alignItems: 'center',
         justifyContent: 'center',
