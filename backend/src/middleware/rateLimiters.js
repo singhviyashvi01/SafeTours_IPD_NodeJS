@@ -18,8 +18,13 @@ function userLimiter({ windowMs, limit, message }) {
   });
 }
 
+const assistantCfg = require('../config/assistant.config');
+
 module.exports = {
   userLimiter,
+  // AI assistant: a model call costs money and time, so it is limited per user per minute and per hour
+  assistantMinute: userLimiter({ windowMs: 60 * 1000, limit: assistantCfg.rateLimit.perMinute, message: 'You are asking too fast. Please wait a moment.' }),
+  assistantHour: userLimiter({ windowMs: 60 * 60 * 1000, limit: assistantCfg.rateLimit.perHour, message: 'Assistant limit reached for this hour. Please try again later.' }),
   // all /api/sos/* calls (polling /pending included)
   sosGeneral: userLimiter({ windowMs: 60 * 1000, limit: 120, message: 'Too many SOS requests, slow down.' }),
   // creating SOS records: a human cannot legitimately need more

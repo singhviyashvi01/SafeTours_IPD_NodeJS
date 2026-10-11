@@ -51,6 +51,8 @@ function assessComponent(key, comp, feeds, nowMs, cfg) {
     confidenceWeight: 0,
     lowConfidence: false,
     demo: false,
+    reports: 0,
+    noReports: false,
   };
 
   if (!out.updatedAt || score === null) return out;
@@ -60,6 +62,9 @@ function assessComponent(key, comp, feeds, nowMs, cfg) {
   out.score = clamp(score, 0, 100);
   out.lowConfidence = Boolean(comp && comp.meta && (comp.meta.lowConfidence || comp.meta.demo));
   out.demo = Boolean(comp && comp.meta && comp.meta.demo);
+  // Feed components: how many reports back the score. 0 reports + score 0 = "no reports" (not "no data").
+  out.reports = comp && comp.meta && Number.isFinite(comp.meta.reports) ? comp.meta.reports : 0;
+  out.noReports = def.mode === 'feed' && out.score === 0 && out.reports === 0;
 
   let factor;
   if (ageMinutes <= def.ttlMinutes) {
@@ -74,7 +79,8 @@ function assessComponent(key, comp, feeds, nowMs, cfg) {
   }
 
   out.effectiveWeight = def.weight * factor;
-  out.confidenceWeight = out.effectiveWeight * (out.lowConfidence ? cfg.lowConfidenceWeightFactor : 1);
+  const absence = out.noReports && Number.isFinite(def.absenceConfidenceFactor) ? def.absenceConfidenceFactor : 1;
+  out.confidenceWeight = out.effectiveWeight * (out.lowConfidence ? cfg.lowConfidenceWeightFactor : 1) * absence;
   return out;
 }
 
@@ -116,6 +122,8 @@ function evaluate({ components = {}, feeds = {}, now = new Date(), cfg = default
       updatedAt: c.updatedAt,
       lowConfidence: c.lowConfidence,
       demo: c.demo,
+      reports: c.reports,
+      noReports: c.noReports && c.effectiveWeight > 0,
     };
   }
 
@@ -148,9 +156,15 @@ function evaluate({ components = {}, feeds = {}, now = new Date(), cfg = default
     }
   }
 
+  // Plain-language notes about HOW a number was reached (shown next to the score).
+  const notes = assessed
+    .filter((c) => c.effectiveWeight > 0 && c.noReports && Number.isFinite(cfg.components[c.key].absenceConfidenceFactor))
+    .map((c) => `${c.label}: no reports in this area (counted as 0, with lower confidence than a real report)`);
+
   return {
     totalRisk,
     level,
+    notes,
     baseRisk: baseRisk === null ? null : round1(baseRisk),
     dataConfidence,
     confidenceLabel,

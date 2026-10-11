@@ -87,7 +87,7 @@ export async function runDeviceCheck(location) {
     h3Index: state.currentH3,
     zoneId: null,
     message: status === 'LOW_ACCURACY'
-      ? `GPS accuracy is too low (limit ${cfg.geofence.accuracyMaxMeters} m); reading ignored`
+      ? `GPS accuracy is unknown or too low (limit ${cfg.geofence.accuracyMaxMeters} m); reading ignored`
       : noData
         ? 'No cached risk data for this spot (offline). Download this area while online.'
         : last && last.message ? last.message : 'Offline check',

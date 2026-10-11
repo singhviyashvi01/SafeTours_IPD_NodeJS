@@ -55,7 +55,10 @@ const FactorChips = ({ risk }) => {
                         <Ionicons name={FACTOR_ICONS[key]} size={14} color={colors.primary} />
                         <Text variant="labelSm" color={colors['on-surface-variant']}>{factorLabel(key)}:</Text>
                         <Text variant="labelSm" style={{ fontWeight: 'bold' }}>
-                            {formatScore(breakdown[key])}{details[key]?.stale ? ' (old)' : ''}
+                            {key === 'community' && details.community?.noReports
+                                ? 'no reports'
+                                : `${formatScore(breakdown[key])}${key === 'community' && details.community?.reports ? ` (${details.community.reports} report${details.community.reports === 1 ? '' : 's'})` : ''}`}
+                            {details[key]?.stale ? ' (old)' : ''}
                         </Text>
                     </View>
                 ))}
@@ -148,6 +151,7 @@ export const SafetyMapScreen = ({ route }) => {
     const [showCommunityFeed, setShowCommunityFeed] = useState(false);
     const [showReportModal, setShowReportModal] = useState(false);
     const [selectedIncidentType, setSelectedIncidentType] = useState('Harassment');
+    const [reportCategories, setReportCategories] = useState([]); // from the server's single category list
     const [incidentDescription, setIncidentDescription] = useState('');
     const [isSubmittingIncident, setIsSubmittingIncident] = useState(false);
     const [incidentMessage, setIncidentMessage] = useState(null);
@@ -417,8 +421,14 @@ export const SafetyMapScreen = ({ route }) => {
     const loadCommunityIncidents = async (coordinates = null) => {
         setIsLoadingCommunity(true);
         setCommunityError(null);
-        const lat = coordinates?.latitude || userLocation?.latitude || 18.9220;
-        const lng = coordinates?.longitude || userLocation?.longitude || 72.8347;
+        // No fallback place: without a position there is nothing to look up.
+        const lat = coordinates?.latitude ?? userLocation?.latitude;
+        const lng = coordinates?.longitude ?? userLocation?.longitude;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+            setCommunityError('Your location is not available yet, so nearby reports cannot be loaded.');
+            setIsLoadingCommunity(false);
+            return;
+        }
         const res = await communityService.getNearbyIncidents(lat, lng, 5000);
         if (res.success) {
             setCommunityIncidents(res.data || []);
@@ -500,7 +510,7 @@ export const SafetyMapScreen = ({ route }) => {
             }
         });
         const offLow = geofenceManager.on('lowAccuracy', ({ accuracy }) => {
-            setGeofenceToast(`GPS accuracy is low (${Math.round(accuracy)} m): risk alerts paused`);
+            setGeofenceToast(Number.isFinite(accuracy) ? `GPS accuracy is low (${Math.round(accuracy)} m): risk alerts paused` : 'GPS accuracy is unknown: risk alerts paused');
             setTimeout(() => setGeofenceToast(null), 3000);
         });
         return () => { off(); offLow(); };
@@ -713,6 +723,10 @@ export const SafetyMapScreen = ({ route }) => {
             await startLiveTracking();
         }
     };
+
+    useEffect(() => {
+        communityService.getCategories().then(setReportCategories);
+    }, []);
 
     // Reload the cells when the connection drops or returns: cached cells while offline, fresh ones when back.
     const offlineRef = useRef(conn.isOffline);
@@ -1453,7 +1467,7 @@ export const SafetyMapScreen = ({ route }) => {
 
                         <Text variant="labelLg" style={{ alignSelf: 'flex-start', marginBottom: 6 }}>Incident Category</Text>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.md, maxHeight: 44 }}>
-                            {['Harassment', 'Theft', 'Accident', 'Road Block', 'Street Light Failure', 'Waterlogging', 'Suspicious Activity', 'Assault', 'Fire', 'Other'].map(cat => (
+                            {reportCategories.map(cat => (
                                 <TouchableOpacity 
                                     key={cat} 
                                     style={[

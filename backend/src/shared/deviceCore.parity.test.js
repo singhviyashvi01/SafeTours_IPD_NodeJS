@@ -56,7 +56,7 @@ const FIXTURES = [
   { name: 'interrupted entry resets', readings: [D(0), D(5), S(10), D(15), D(20)], events: [] },
   { name: 'unknown cells never enter', readings: [U(0), U(5), U(10), U(400)], events: [] },
   // 55 is below the enter score (60) but above the exit score (52): still inside; the level change is history only
-  { name: 'border scores keep you inside', readings: [D(0), D(5), D(10), { h3Index: 'border', timestamp: at(15) }, { h3Index: 'border', timestamp: at(20) }, { h3Index: 'border', timestamp: at(25) }], events: ['ENTER', 'ZONE_CHANGED'] },
+  { name: 'border scores keep you inside', readings: [D(0), D(5), D(10), { h3Index: 'border', timestamp: at(15), accuracy: 10 }, { h3Index: 'border', timestamp: at(20), accuracy: 10 }, { h3Index: 'border', timestamp: at(25), accuracy: 10 }], events: ['ENTER', 'ZONE_CHANGED'] },
   { name: 'low accuracy readings are ignored', readings: [{ ...D(0), accuracy: 400 }, { ...D(5), accuracy: 400 }, { ...D(10), accuracy: 400 }], events: [] },
   { name: 'duplicate timestamps are skipped', readings: [D(0), D(0), D(5), D(5), D(10)], events: ['ENTER'] },
   { name: 'unsorted batch is replayed in time order', readings: [S(25), D(10), D(0), S(15), D(5), S(20)], events: ['ENTER', 'EXIT'] },

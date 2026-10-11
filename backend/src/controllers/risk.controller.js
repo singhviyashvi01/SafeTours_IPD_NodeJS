@@ -1,6 +1,7 @@
 const h3 = require('h3-js');
 const cfg = require('../config/risk.config');
 const cellRisk = require('../services/risk/cellRisk.service');
+const communityComponent = require('../services/risk/communityComponent');
 const feedStatus = require('../services/risk/feedStatus.service');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/apiError');
@@ -56,6 +57,8 @@ const debugRisk = asyncHandler(async (req, res) => {
   const { cell, result } = await cellRisk.evaluateCell(h3Index);
   const feeds = await feedStatus.getAll({ fresh: true });
   const now = Date.now();
+  // Which reports make up the community score of this cell (null if the lookup fails: debug only).
+  const communityDetail = await communityComponent.explainCell(h3Index).catch(() => null);
 
   const feedView = {};
   for (const [key, f] of Object.entries(feeds)) {
@@ -87,6 +90,8 @@ const debugRisk = asyncHandler(async (req, res) => {
         confidenceLabel: result.confidenceLabel,
         lowConfidence: result.lowConfidence,
         lowConfidenceReasons: result.lowConfidenceReasons,
+        notes: result.notes,
+        community: communityDetail,
         unknown: result.unknown,
         missing: result.missing,
         stale: result.stale,

@@ -11,6 +11,13 @@ import { riskCache as cfg } from '../offline/offlineConfig';
  * are served with their age. The table is capped at riskCache.maxRows; the OLDEST regions are evicted first
  * (current and destination regions last).
  */
+// comps holds the component scores plus the reserved key _reports (community reports filed in the cell).
+const parseComps = (json) => {
+  if (!json) return { components: null, reports: null };
+  const { _reports, ...components } = JSON.parse(json);
+  return { components, reports: _reports === undefined ? null : _reports };
+};
+
 const toRow = (r) => ({
   h3Index: r.h3,
   level: r.level,
@@ -20,7 +27,8 @@ const toRow = (r) => ({
   lowConfidence: Boolean(r.low_conf),
   demo: Boolean(r.demo),
   topFactor: r.top_factor,
-  components: r.comps ? JSON.parse(r.comps) : null,
+  components: parseComps(r.comps).components,
+  communityReports: parseComps(r.comps).reports,
   lat: r.lat,
   lng: r.lng,
   fetchedAt: r.fetched_at,
@@ -47,7 +55,7 @@ export const riskCellStore = {
         await db.runAsync(
           'INSERT OR REPLACE INTO risk_cells (h3, region_id, lat, lng, level, score, base_risk, confidence, low_conf, demo, top_factor, comps, fetched_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
           c.h3Index, id, c.lat, c.lng, c.riskLevel, c.totalRiskScore ?? null, c.baseRisk ?? null, c.dataConfidence ?? null,
-          c.lowConfidence ? 1 : 0, c.demo ? 1 : 0, c.topFactor ?? null, c.components ? JSON.stringify(c.components) : null, fetchedAt
+          c.lowConfidence ? 1 : 0, c.demo ? 1 : 0, c.topFactor ?? null, c.components ? JSON.stringify({ ...c.components, _reports: c.communityReports ?? null }) : null, fetchedAt
         );
       }
     });

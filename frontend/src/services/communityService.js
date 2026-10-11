@@ -1,10 +1,34 @@
 import { apiClient, formatApiError } from './apiClient';
 import { sendOrQueue } from './outbox';
+import { kvCache } from '../storage/kvCache';
+
+// Last-resort list for a phone that has never reached the server. The server's list (GET /api/community/categories, from config/communityConfig.js) replaces it as soon as it is fetched.
+const FALLBACK_CATEGORIES = ['Harassment', 'Theft', 'Assault', 'Suspicious Activity', 'Accident', 'Medical Emergency', 'Fire', 'Road Block', 'Waterlogging', 'Street Light Failure', 'Other'];
+const CATEGORIES_KEY = 'community:categories';
 
 /**
  * Service for interacting with backend Community Incident endpoints.
  */
 export const communityService = {
+  /**
+   * The report categories: the server's single list, cached on the phone, with a built-in last resort.
+   * @returns {Promise<string[]>}
+   */
+  async getCategories() {
+    try {
+      const response = await apiClient.get('/community/categories', { timeout: 6000 });
+      const names = (response.data?.data || []).map((c) => c.name).filter(Boolean);
+      if (names.length) {
+        await kvCache.set(CATEGORIES_KEY, names);
+        return names;
+      }
+    } catch (error) {
+      /* offline: use the cache */
+    }
+    const hit = await kvCache.get(CATEGORIES_KEY, { allowExpired: true });
+    return hit && Array.isArray(hit.value) && hit.value.length ? hit.value : FALLBACK_CATEGORIES;
+  },
+
   /**
    * Reports a new community incident.
    * @param {Object} payload - { incidentType, description, latitude, longitude }

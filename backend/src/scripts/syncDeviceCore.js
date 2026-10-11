@@ -1,13 +1,23 @@
 /**
- * syncDeviceCore.js: copies backend/src/shared/deviceCore.js to frontend/src/offline/deviceCore.js.
+ * syncDeviceCore.js: copies the pure modules shared with the phone from backend/src/shared to
+ * frontend/src/offline.
  *   npm run sync:device-core
- * The two files must stay byte-identical (the backend test suite fails otherwise).
+ *
+ *   deviceCore.js      geofence state machine + time-of-day rules (offline geofence check)
+ *   assistantRules.js  rule-based assistant answers + Home tips (offline assistant)
+ *
+ * Each pair must stay byte-identical (the backend test suite fails otherwise).
  */
 const fs = require('fs');
 const path = require('path');
 
-const from = path.resolve(__dirname, '../shared/deviceCore.js');
-const to = path.resolve(__dirname, '../../../frontend/src/offline/deviceCore.js');
-fs.mkdirSync(path.dirname(to), { recursive: true });
-fs.copyFileSync(from, to);
-console.log(`Copied\n  ${from}\n→ ${to}`);
+const FILES = ['deviceCore.js', 'assistantRules.js'];
+const toDir = path.resolve(__dirname, '../../../frontend/src/offline');
+fs.mkdirSync(toDir, { recursive: true });
+
+for (const name of FILES) {
+  const from = path.resolve(__dirname, '../shared', name);
+  const to = path.join(toDir, name);
+  fs.copyFileSync(from, to);
+  console.log(`Copied ${from}\n    -> ${to}`);
+}

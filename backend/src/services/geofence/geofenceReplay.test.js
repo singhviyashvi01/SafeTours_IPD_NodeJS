@@ -20,7 +20,8 @@ const cfg = {
 const NOW = new Date('2026-10-03T12:00:00Z');
 const at = (minAgo, sec = 0) => new Date(NOW.getTime() - minAgo * 60000 + sec * 1000).toISOString();
 const resolveRisk = async (h3) => (h3.startsWith('danger') ? { riskLevel: 'HIGH', totalRisk: 70 } : h3.startsWith('unknown') ? { riskLevel: 'UNKNOWN', totalRisk: null } : { riskLevel: 'LOW', totalRisk: 30 });
-const run = (state, readings) => processReadings(state, readings, { resolveRisk, now: NOW, cfg });
+// Readings in these tests have a known accuracy (10 m) unless a test sets the key itself (null / undefined = unknown).
+const run = (state, readings) => processReadings(state, readings.map((r) => ('accuracy' in r ? r : { ...r, accuracy: 10 })), { resolveRisk, now: NOW, cfg });
 
 test('low-accuracy readings are ignored: no counters, no events', async () => {
   const r = await run(initialState(), [
@@ -68,7 +69,7 @@ test('re-sending the same batch is a no-op (de-duplicated by the persisted lastR
 });
 
 test('future-dated readings are rejected', async () => {
-  const r = await run(initialState(), [{ h3Index: 'danger1', timestamp: new Date(NOW.getTime() + 10 * 60000).toISOString() }]);
+  const r = await run(initialState(), [{ h3Index: 'danger1', timestamp: new Date(NOW.getTime() + 10 * 60000).toISOString() , accuracy: 10 }]);
   assert.equal(r.skipped.future, 1);
   assert.equal(r.accepted, 0);
 });
@@ -147,4 +148,24 @@ test('cancel window: a pending check is "waiting" until its deadline and only th
   assert.equal(pendingStatus(rec, new Date(NOW.getTime() + 60000)), 'expired');
   assert.equal(secondsLeft(rec, NOW), 60);
   assert.equal(secondsLeft(rec, new Date(NOW.getTime() + 61000)), 0);
+});
+
+// ── unknown accuracy ──────────────────────────────────────────────────────────────────────────────
+test('a reading with unknown accuracy (null / missing) is ignored exactly like a low-accuracy one', async () => {
+  const r = await run(initialState(), [
+    { h3Index: 'danger1', timestamp: at(1, 0), accuracy: null },
+    { h3Index: 'danger1', timestamp: at(1, 5), accuracy: undefined }, // accuracy missing
+    { h3Index: 'danger1', timestamp: at(1, 10), accuracy: Number.NaN },
+    { h3Index: 'danger1', timestamp: at(1, 15), accuracy: 10 },
+  ]);
+  assert.equal(r.skipped.lowAccuracy, 3);
+  assert.equal(r.accepted, 1);
+  assert.equal(r.state.dangerReadings, 1); // only the known-accuracy reading counted
+});
+
+test('unknown accuracy can never start an ENTER by itself', async () => {
+  const unknown = Array.from({ length: 10 }, (_, i) => ({ h3Index: 'danger1', timestamp: at(1, i * 10), accuracy: null }));
+  const r = await run(initialState(), unknown);
+  assert.equal(r.accepted, 0);
+  assert.deepEqual(r.events, []);
 });

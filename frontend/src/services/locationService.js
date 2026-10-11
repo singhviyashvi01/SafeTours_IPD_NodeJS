@@ -10,7 +10,8 @@ export const locationService = {
     const payload = {
       latitude: Number(locationData.latitude),
       longitude: Number(locationData.longitude),
-      accuracy: Number(locationData.accuracy || 10),
+      // null = unknown: sent and stored as null, never replaced by a number.
+      accuracy: Number.isFinite(Number(locationData.accuracy)) && locationData.accuracy !== null && locationData.accuracy !== '' && Number(locationData.accuracy) >= 0 ? Number(locationData.accuracy) : null,
       speed: locationData.speed !== undefined ? Math.max(0, Number(locationData.speed)) : 0,
       heading: locationData.heading !== undefined ? Number(locationData.heading) : 0,
       timestamp: locationData.timestamp || new Date().toISOString(),

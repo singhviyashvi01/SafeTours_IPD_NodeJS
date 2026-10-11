@@ -89,7 +89,8 @@ class GeofenceManager {
     const c = location?.coords;
     if (!c || !Number.isFinite(c.latitude) || !Number.isFinite(c.longitude)) return { status: 'INVALID' };
 
-    if (Number.isFinite(c.accuracy) && c.accuracy > this.maxAccuracy) {
+    // Unknown accuracy (null) is ignored exactly like low accuracy: the server and the on-device check do the same.
+    if (!Number.isFinite(c.accuracy) || c.accuracy > this.maxAccuracy) {
       this.emit('lowAccuracy', { accuracy: c.accuracy, max: this.maxAccuracy });
       return { status: 'LOW_ACCURACY' };
     }

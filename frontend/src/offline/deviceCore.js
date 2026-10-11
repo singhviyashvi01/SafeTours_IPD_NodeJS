@@ -205,7 +205,8 @@ function step(state, obs, cfg) {
  * Runs readings through the state machine oldest first.
  *  - future-dated readings are rejected
  *  - a reading at or before the last processed one is skipped (duplicate / out of order)
- *  - readings less accurate than cfg.accuracyMaxMeters are skipped
+ *  - readings less accurate than cfg.accuracyMaxMeters are skipped, and so are readings with UNKNOWN accuracy
+ *    (null / missing): a position whose quality nobody knows must not start or end a danger episode
  *  - events older than cfg.historicalAfterMinutes at processing time are flagged historical
  * @param {{resolveRisk:(h3:string, ts:number)=>Promise<{riskLevel:string,totalRisk:number|null}>, now?:Date}} opts
  */
@@ -236,7 +237,8 @@ async function processReadings(state, readings, opts) {
       skipped.duplicateOrOlder += 1;
       continue;
     }
-    if (Number.isFinite(r.accuracy) && r.accuracy > cfg.accuracyMaxMeters) {
+    // Unknown accuracy (null / undefined / NaN) is treated like low accuracy: the reading is ignored.
+    if (!Number.isFinite(r.accuracy) || r.accuracy > cfg.accuracyMaxMeters) {
       skipped.lowAccuracy += 1;
       continue;
     }

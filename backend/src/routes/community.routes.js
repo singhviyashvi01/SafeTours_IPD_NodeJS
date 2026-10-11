@@ -6,6 +6,7 @@ const { communityReport } = require('../middleware/rateLimiters');
 const { idempotent } = require('../middleware/idempotency');
 const {
   reportIncident,
+  getCategories,
   getNearbyIncidents,
   confirmIncident,
   reportFalse,
@@ -28,6 +29,12 @@ router.use(verifyJWT);
  */
 // idempotent() first: a re-sent report returns the stored answer and does not use up the hourly quota.
 router.post('/report', idempotent('community.report'), communityReport, reportIncidentRules, validateRequest, reportIncident);
+
+/**
+ * GET /api/community/categories
+ * The report categories (single list from config/communityConfig.js)
+ */
+router.get('/categories', getCategories);
 
 /**
  * GET /api/community/nearby

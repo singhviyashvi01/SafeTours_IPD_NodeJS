@@ -57,7 +57,9 @@ const config = {
     crime: { weight: 0.40, mode: 'cell', ttlMinutes: 60 * 24 * 180, label: 'Crime' },
     weather: { weight: 0.20, mode: 'cell', ttlMinutes: 90, label: 'Weather' },
     crowd: { weight: 0.15, mode: 'cell', ttlMinutes: 60 * 12, label: 'Crowd' },
-    community: { weight: 0.15, mode: 'feed', ttlMinutes: 60 * 3, label: 'Community' },
+    // absenceConfidenceFactor: a cell with NO reports scores 0 (a real observation while the feed is healthy),
+    // but "nobody reported anything" is weaker evidence than a report, so it counts at this share in dataConfidence.
+    community: { weight: 0.15, mode: 'feed', ttlMinutes: 60 * 3, label: 'Community', absenceConfidenceFactor: 0.7 },
     news: { weight: 0.10, mode: 'feed', ttlMinutes: 120, label: 'News' },
   },
 

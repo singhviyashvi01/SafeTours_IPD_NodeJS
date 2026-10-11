@@ -37,6 +37,8 @@ function publicView(h3Index, cell, result) {
       ageMinutes: b.ageMinutes,
       lowConfidence: b.lowConfidence,
       demo: b.demo,
+      reports: b.reports,
+      noReports: b.noReports,
     };
   }
   const [lat, lng] = cell && cell.center ? [cell.center.lat, cell.center.lng] : h3.cellToLatLng(h3Index);
@@ -51,6 +53,7 @@ function publicView(h3Index, cell, result) {
     confidenceLabel: result.confidenceLabel,
     lowConfidence: result.lowConfidence,
     lowConfidenceReasons: result.lowConfidenceReasons,
+    notes: result.notes,
     demo: result.demo,
     missing: result.missing,
     stale: result.stale,
@@ -134,6 +137,8 @@ async function listCellsInBox({ minLat, maxLat, minLng, maxLng, minLevel = 'LOW'
         demo: result.demo,
         topFactor: result.topFactor,
         components,
+        // community reports filed in this cell (the community score itself is components.community)
+        communityReports: result.breakdown.community ? result.breakdown.community.reports : 0,
       });
       if (out.length >= cap) break;
       continue;

@@ -17,6 +17,7 @@ const sosRoutes = require('./routes/sosRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const communityRoutes = require('./routes/community.routes');
 const geofenceRoutes = require('./services/geofence/geofence.routes');
+const assistantRoutes = require('./routes/assistant.routes');
 const riskRoutes = require('./routes/risk.routes');
 const adminRoutes = require('./routes/admin.routes');
 const nearbyRoutes = require('./routes/nearby.routes');
@@ -109,6 +110,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/nearby', nearbyRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/geofence', geofenceRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 // ─── 404 handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {

@@ -280,7 +280,7 @@ class GeofenceService {
       h3Index: state.currentH3,
       zoneId: last ? last.risk.cellId : null,
       message: status === 'LOW_ACCURACY'
-        ? `GPS accuracy is too low (limit ${cfg.accuracyMaxMeters} m); reading ignored`
+        ? `GPS accuracy is unknown or too low (limit ${cfg.accuracyMaxMeters} m); reading ignored`
         : status === 'STALE_READING'
           ? 'Reading ignored (duplicate, out of order or future-dated)'
           : messageFor(state, last && last.message),

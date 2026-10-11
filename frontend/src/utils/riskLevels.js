@@ -23,5 +23,6 @@ export const dataQualityNote = (risk) => {
   if (risk.demo) parts.push('Includes demo data');
   if (risk.missing?.length) parts.push(`No data: ${risk.missing.map(factorLabel).join(', ')}`);
   if (risk.stale?.length) parts.push(`Outdated: ${risk.stale.map(factorLabel).join(', ')}`);
+  if (risk.notes?.length) parts.push(risk.notes[0]);
   return parts.length ? parts.join(' · ') : null;
 };

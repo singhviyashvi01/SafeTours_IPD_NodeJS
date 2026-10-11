@@ -78,7 +78,10 @@ function viewOf(row, now) {
     demo: r.demo,
     topFactor: row.topFactor,
     breakdown: row.components || {},
-    componentDetails: {},
+    componentDetails: {
+      // 'no reports' (healthy feed, nothing reported) is different from 'no data'
+      community: { reports: row.communityReports ?? null, noReports: row.communityReports === 0 && (row.components && row.components.community === 0) },
+    },
     missing: [],
     stale: [],
     modifiers: { time: mod.time, festival: mod.festival, combinedMultiplier: Math.round(mod.combinedMultiplier * 100) / 100 },

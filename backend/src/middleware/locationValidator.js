@@ -10,8 +10,9 @@ const validateLocationRules = [
     .exists({ checkNull: true }).withMessage('Longitude is required.')
     .isFloat({ min: -180, max: 180 }).withMessage('Longitude must be a valid number between -180 and 180.'),
 
+  // null / missing accuracy means "unknown": it is stored as null, never replaced by a number.
   body('accuracy')
-    .exists({ checkNull: true }).withMessage('Accuracy is required.')
+    .optional({ nullable: true })
     .isFloat({ min: 0 }).withMessage('Accuracy must be a positive number representing meters.'),
 
   body('speed')
@@ -34,7 +35,7 @@ const validateLocationBatchRules = [
   body('points.*.idempotencyKey').isString().isLength({ min: 8, max: 128 }).withMessage('Each point needs an idempotencyKey (8-128 characters).'),
   body('points.*.latitude').exists({ checkNull: true }).isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90.').toFloat(),
   body('points.*.longitude').exists({ checkNull: true }).isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180.').toFloat(),
-  body('points.*.accuracy').exists({ checkNull: true }).isFloat({ min: 0 }).withMessage('Accuracy must be a number of metres.').toFloat(),
+  body('points.*.accuracy').optional({ nullable: true }).isFloat({ min: 0 }).withMessage('Accuracy must be a number of metres, or null when unknown.').toFloat(),
   body('points.*.speed').optional({ nullable: true }).isFloat({ min: 0 }).toFloat(),
   body('points.*.heading').optional({ nullable: true }).isFloat({ min: 0, max: 360 }).toFloat(),
   body('points.*.timestamp').exists({ checkNull: true }).isISO8601().withMessage('Timestamp must be ISO 8601.'),

@@ -32,8 +32,11 @@ test('all five components present: plain weighted mean', () => {
   // .4*80 + .2*20 + .15*40 = 42
   assert.equal(r.baseRisk, 42);
   assert.equal(r.totalRisk, 42);
-  assert.equal(r.dataConfidence, 1);
+  // community has no reports here: it scores 0 but counts at 0.7 of its confidence weight (0.15 x 0.3 = 0.045)
+  assert.equal(r.dataConfidence, 0.95);
   assert.equal(r.confidenceLabel, 'HIGH');
+  assert.equal(r.breakdown.community.noReports, true);
+  assert.equal(r.notes.length, 1);
   assert.equal(r.lowConfidence, false);
   assert.equal(r.level, 'MODERATE');
   assert.equal(r.topFactor, 'crime');
@@ -47,8 +50,8 @@ test('missing crime: weights renormalised, confidence lowered, lowConfidence fla
   });
   // usable weights .2 + .15 + .15 + .1 = .6 ; base = (.2*60 + .15*60) / .6 = 35
   assert.equal(r.baseRisk, 35);
-  assert.equal(r.dataConfidence, 0.6);
-  assert.equal(r.confidenceLabel, 'MEDIUM');
+  assert.equal(r.dataConfidence, 0.55); // 0.6 minus the no-reports discount (0.045)
+  assert.equal(r.confidenceLabel, 'LOW');
   assert.equal(r.lowConfidence, true);
   assert.ok(r.missing.includes('crime'));
   assert.ok(r.lowConfidenceReasons.includes('crime data unavailable'));
@@ -72,7 +75,7 @@ test('stale data is used at half weight and flagged; expired data is dropped', (
   assert.equal(a.breakdown.weather.available, true);
   assert.deepEqual(a.stale, ['weather']);
   // crime .4 + weather .2/2 + community .15 + news .1 (crowd missing) = .75
-  assert.equal(a.dataConfidence, 0.75);
+  assert.equal(a.dataConfidence, 0.7); // 0.75 minus the no-reports discount
 
   const b = evaluate({ components: { crime: fresh(50), weather: expired }, feeds: feeds(), now: NOON_IST });
   assert.equal(b.breakdown.weather.status, 'expired');
@@ -89,7 +92,7 @@ test('a dead feed (old heartbeat) turns news into stale instead of silently 0', 
     now: NOON_IST,
   });
   assert.equal(r.breakdown.news.status, 'stale');
-  assert.equal(r.dataConfidence, 0.95); // news counts at half weight
+  assert.equal(r.dataConfidence, 0.9); // news counts at half weight, community has no reports
 });
 
 test('demo components are scored but count at reduced confidence and surface the flag', () => {
@@ -101,7 +104,7 @@ test('demo components are scored but count at reduced confidence and surface the
   });
   assert.equal(r.demo, true);
   assert.equal(r.lowConfidence, true);
-  assert.equal(r.dataConfidence, 0.8); // crime counts .2 instead of .4
+  assert.equal(r.dataConfidence, 0.75); // crime counts .2 instead of .4, community has no reports
   assert.ok(r.lowConfidenceReasons.includes('crime is demo data'));
 });
 
@@ -158,4 +161,33 @@ test('level thresholds are 20 / 40 / 60 / 80', () => {
     [100, 'EXTREME'],
   ];
   for (const [score, level] of cases) assert.equal(at(score).level, level, `score ${score}`);
+});
+
+// ── Phase 7: "no reports" is not "no data" ─────────────────────────────────────────────────────────
+
+test('community with a healthy feed and no reports is a real 0 with a note, not a missing component', () => {
+  const r = evaluate({ components: { crime: fresh(50), weather: fresh(50), crowd: fresh(50) }, feeds: feeds(), now: NOON_IST });
+  assert.ok(!r.missing.includes('community'));
+  assert.equal(r.breakdown.community.score, 0);
+  assert.equal(r.breakdown.community.noReports, true);
+  assert.match(r.notes[0], /no reports/i);
+});
+
+test('with a dead community feed the same cell is missing/stale, never silently 0', () => {
+  const old = { updatedAt: minutesAgo(60 * 24) };
+  const r = evaluate({ components: { crime: fresh(50), weather: fresh(50), crowd: fresh(50) }, feeds: { news: feeds().news, community: old }, now: NOON_IST });
+  assert.ok(r.missing.includes('community'));
+  assert.equal(r.breakdown.community.noReports, false);
+});
+
+test('a cell with real reports carries them in the breakdown and no absence note', () => {
+  const r = evaluate({
+    components: { crime: fresh(50), weather: fresh(50), crowd: fresh(50), community: { score: 40, updatedAt: minutesAgo(5), meta: { reports: 3 } } },
+    feeds: feeds(),
+    now: NOON_IST,
+  });
+  assert.equal(r.breakdown.community.reports, 3);
+  assert.equal(r.breakdown.community.noReports, false);
+  assert.equal(r.notes.length, 0);
+  assert.equal(r.demo, false); // community can never be demo data
 });

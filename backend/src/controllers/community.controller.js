@@ -13,14 +13,27 @@ const reportIncident = async (req, res, next) => {
 
     const newIncident = await communityService.reportIncident(userId, incidentData);
 
-    return res.status(201).json({
+    // merged: an identical report from someone else nearby was just filed, so this one counted as a confirmation of it.
+    const merged = Boolean(newIncident && newIncident.merged);
+    return res.status(merged ? 200 : 201).json({
       success: true,
-      message: 'Incident reported successfully.',
+      message: merged ? 'A similar report already exists nearby: yours was counted as a confirmation.' : 'Incident reported successfully.',
+      merged,
       data: newIncident,
     });
   } catch (error) {
     next(error);
   }
+};
+
+/**
+ * The report categories (the single list in config/communityConfig.js) so the app never keeps its own copy.
+ * GET /api/community/categories
+ */
+const getCategories = async (req, res) => {
+  const { incidentCategories, severityLabel } = require('../config/communityConfig');
+  const data = Object.entries(incidentCategories).map(([name, c]) => ({ name, severity: severityLabel(c.severity), expiryHours: c.expiryHours }));
+  return res.status(200).json({ success: true, count: data.length, data });
 };
 
 /**
@@ -136,6 +149,7 @@ const getMyReports = async (req, res, next) => {
 
 module.exports = {
   reportIncident,
+  getCategories,
   getNearbyIncidents,
   confirmIncident,
   reportFalse,

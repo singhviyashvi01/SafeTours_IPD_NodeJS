@@ -1,5 +1,8 @@
 const Location = require('../models/Location');
 
+/** A finite, non-negative number of metres, or null. Never a default: Number(null) would be 0, which claims a perfect fix. */
+const knownAccuracy = (v) => (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+
 class LocationService {
   /**
    * Saves a single location point for a user.
@@ -21,7 +24,7 @@ class LocationService {
           // CRITICAL: GeoJSON format always requires [longitude, latitude]
           coordinates: [longitude, latitude], 
         },
-        accuracy,
+        accuracy: knownAccuracy(accuracy),
         speed: speed || 0,
         heading,
         timestamp,
@@ -43,7 +46,7 @@ class LocationService {
    * `futureToleranceMs` ahead, or older than `maxAgeDays`) are rejected individually instead of failing the batch.
    *
    * @param {string} userId
-   * @param {Array<{idempotencyKey:string, latitude:number, longitude:number, accuracy:number, timestamp:Date|string, speed?:number, heading?:number}>} points
+   * @param {Array<{idempotencyKey:string, latitude:number, longitude:number, accuracy:number|null, timestamp:Date|string, speed?:number, heading?:number}>} points
    * @param {Object} [opts] { model, now, futureToleranceMs, maxAgeDays }  (model/now are injectable for tests)
    * @returns {Promise<{received:number, inserted:number, duplicates:number, rejected:Array<{index:number, reason:string}>, newest:Object|null}>}
    */
@@ -75,7 +78,7 @@ class LocationService {
       const docs = fresh.map((p) => ({
         userId,
         location: { type: 'Point', coordinates: [Number(p.longitude), Number(p.latitude)] },
-        accuracy: Number(p.accuracy),
+        accuracy: knownAccuracy(p.accuracy),
         speed: p.speed || 0,
         heading: p.heading,
         timestamp: new Date(p.timestamp),

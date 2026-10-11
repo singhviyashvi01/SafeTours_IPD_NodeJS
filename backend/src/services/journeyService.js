@@ -109,7 +109,8 @@ class JourneyService {
   /**
    * Called for every stored location and every journey update. Remembers the last known location of the
    * active journey and completes it when the user is within the arrival radius of the destination
-   * (readings less accurate than accuracyMaxMeters are not trusted for arrival).
+   * (readings less accurate than accuracyMaxMeters, and readings with UNKNOWN accuracy, are not trusted for
+   * arrival: the position is still remembered as the last known one).
    * @returns {{arrived:boolean, journey?:Object}}
    */
   async checkArrival(userId, { latitude, longitude, accuracy }) {
@@ -120,7 +121,8 @@ class JourneyService {
 
     const [destLng, destLat] = journey.destination.coordinates;
     const distance = haversineMeters(latitude, longitude, destLat, destLng);
-    const accurateEnough = accuracy === undefined || accuracy === null || Number(accuracy) <= cfg.accuracyMaxMeters;
+    // Unknown accuracy (null / undefined) is NOT accurate enough: arrival needs a position we can trust.
+    const accurateEnough = accuracy !== undefined && accuracy !== null && Number.isFinite(Number(accuracy)) && Number(accuracy) <= cfg.accuracyMaxMeters;
 
     if (accurateEnough && distance <= cfg.eta.arrivalRadiusMeters) {
       const done = await Journey.findOneAndUpdate(

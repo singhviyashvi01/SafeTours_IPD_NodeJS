@@ -21,10 +21,11 @@ const locationSchema = new mongoose.Schema(
         required: true,
       },
     },
+    // Metres. null = unknown (the device did not report one): never a made-up default.
     accuracy: {
       type: Number,
-      required: true,
-      min: 0, // In meters
+      default: null,
+      min: 0,
     },
     speed: {
       type: Number,

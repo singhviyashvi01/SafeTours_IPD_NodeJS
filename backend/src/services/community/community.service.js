@@ -1,9 +1,11 @@
+const h3 = require('h3-js');
 const Incident = require('../../models/Incident');
 const IncidentConfirmation = require('../../models/IncidentConfirmation');
 const FalseIncidentReport = require('../../models/FalseIncidentReport');
 const { toCell } = require('../risk/cellRisk.service');
 const communityComponent = require('../risk/communityComponent');
-const { incidentCategories } = require('../../config/communityConfig');
+const communityScoring = require('../risk/communityScoring');
+const { incidentCategories, severityLabel, scoring: scoringCfg } = require('../../config/communityConfig');
 const logger = require('../../utils/logger');
 const ApiError = require('../../utils/apiError');
 
@@ -24,6 +26,28 @@ class CommunityService {
       // 2. Map coordinates to H3 Cell ID
       const h3CellId = toCell(latitude, longitude);
 
+      // 2b. Duplicate handling (anti-spam). Same user + same type nearby recently: rejected. Another user's
+      //     identical report nearby recently: counted as a confirmation of that report instead of a second one.
+      const now = new Date();
+      const since = new Date(now.getTime() - scoringCfg.duplicate.windowMinutes * 60000);
+      const candidates = await Incident.find({
+        status: 'ACTIVE',
+        incidentType,
+        createdAt: { $gte: since },
+        h3CellId: { $in: h3.gridDisk(h3CellId, 2) },
+      })
+        .select('userId incidentType latitude longitude createdAt')
+        .lean();
+      const dup = communityScoring.classifyDuplicate({ userId, incidentType, latitude, longitude }, candidates, now);
+      if (dup.kind === 'own_duplicate') {
+        throw new ApiError(409, 'You already reported this nearby a moment ago.');
+      }
+      if (dup.kind === 'merge') {
+        const confirmed = await this.confirmIncident(dup.incident._id, userId);
+        const out = typeof confirmed.toObject === 'function' ? confirmed.toObject() : { ...confirmed };
+        return { ...out, merged: true };
+      }
+
       // 3. Calculate expiration date
       const expiresAt = new Date(Date.now() + category.expiryHours * 60 * 60 * 1000);
 
@@ -39,7 +63,7 @@ class CommunityService {
           coordinates: [longitude, latitude], // GeoJSON standard
         },
         h3CellId,
-        severity: category.severity,
+        severity: severityLabel(category.severity),
         status: 'ACTIVE',
         confirmationCount: 0,
         falseReportCount: 0,
@@ -117,8 +141,10 @@ class CommunityService {
         throw new ApiError(400, 'You have already confirmed this incident.');
       }
 
-      // 3. Check if user is trying to confirm their own reported incident
-      // (Optional rule: users can confirm their own or not. Let's assume yes, but if they already confirmed via default check, let it go.)
+      // 3. A reporter cannot confirm their own report (it would count as an independent confirmation).
+      if (String(incident.userId) === String(userId)) {
+        throw new ApiError(400, 'You cannot confirm your own report.');
+      }
 
       // 4. Save confirmation
       const confirmation = new IncidentConfirmation({ incidentId, userId });
@@ -167,9 +193,9 @@ class CommunityService {
       incident.falseReportCount += 1;
 
       // 5. If false reports exceed or meet threshold (>= 5), remove the incident
-      if (incident.falseReportCount >= 5) {
+      if (incident.falseReportCount >= scoringCfg.removeAfterFalseReports) {
         incident.status = 'REMOVED';
-        logger.warn(`[CommunityService.reportFalse] Incident ${incidentId} REMOVED due to threshold of 5 false reports.`);
+        logger.warn(`[CommunityService.reportFalse] Incident ${incidentId} REMOVED due to threshold of ${scoringCfg.removeAfterFalseReports} false reports.`);
       }
 
       const updatedIncident = await incident.save();

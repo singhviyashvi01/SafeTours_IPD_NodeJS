@@ -18,6 +18,7 @@ import { formatScore, confidenceText, dataQualityNote, factorLabel } from '../..
 import { getRiskColors } from '../../components/MapComponent';
 import { DemoBadge } from '../../components/DemoBadge';
 import { NearbyServicesCard } from '../../components/NearbyServicesCard';
+import { SafetyTips } from '../../components/SafetyTips';
 import { ensureWatching } from '../../utils/locationWatcher';
 import { useConnectivity } from '../../context/ConnectivityContext';
 import { formatAge } from '../../utils/geo';
@@ -218,6 +219,8 @@ export const HomeScreen = () => {
                     </InfoCard>
                 </View>
 
+
+                <SafetyTips data={data} />
 
                 <NearbyServicesCard />
 
