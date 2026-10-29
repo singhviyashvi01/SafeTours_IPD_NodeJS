@@ -55,7 +55,9 @@
           "enableBackgroundRemoteNotifications": true
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset",
+      "expo-font"
     ]
   }
 }
