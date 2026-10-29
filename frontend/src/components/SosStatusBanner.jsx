@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
 import { useOutbox } from '../context/OutboxContext';
 import { useConnectivity } from '../context/ConnectivityContext';
-import { navigationRef } from '../navigation/navigationRef';
+import { navigateTo } from '../navigation/navigationRef';
 import { smsSummary } from '../offline/smsLogic';
 
 /**
@@ -28,7 +28,7 @@ export const SosStatusBanner = () => {
     <TouchableOpacity
       activeOpacity={0.85}
       style={[styles.banner, { paddingTop: insets.top + 6 }]}
-      onPress={() => navigationRef.isReady() && navigationRef.navigate('SOS')}
+      onPress={() => navigateTo('SOS')}
       accessibilityRole="button"
       accessibilityLabel={`${title}. ${line}. Tap for details.`}
     >

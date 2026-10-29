@@ -6,7 +6,7 @@ import { Text } from '../components/Text';
 import { useAuth } from './AuthContext';
 import { kvCache } from '../storage/kvCache';
 import { triggerSos } from '../services/sosDispatcher';
-import { navigationRef } from '../navigation/navigationRef';
+import { navigateTo } from '../navigation/navigationRef';
 import { createPressDetector } from '../offline/pressDetector';
 import { hardware as hwCfg, sos as sosCfg } from '../offline/offlineConfig';
 
@@ -66,7 +66,7 @@ export const SosTriggerProvider = ({ children }) => {
 
   const fire = useCallback(async (source) => {
     stop();
-    if (navigationRef.isReady()) navigationRef.navigate('SOS');
+    navigateTo('SOS');
     try {
       await triggerSos({ source, reason: source === 'hardware' ? 'SOS from the volume buttons.' : source === 'notification' ? 'SOS from the notification shortcut.' : 'SOS triggered.' });
     } catch (e) {

@@ -3,7 +3,7 @@ import { Animated, Dimensions, Modal, Pressable, StyleSheet, View } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
 import { colors, shapes, spacing } from '../theme/theme';
-import { navigationRef } from '../navigation/navigationRef';
+import { navigationRef, navigateTo } from '../navigation/navigationRef';
 
 const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 320);
 
@@ -58,7 +58,7 @@ export const SidebarDrawer = ({ visible, onClose, navigation: propNavigation, ac
     if (propNavigation) {
       propNavigation.navigate(item.route, params);
     } else if (navigationRef.isReady()) {
-      navigationRef.navigate(item.route, params);
+      navigateTo(item.route, params);
     }
   };
 
