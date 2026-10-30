@@ -1635,7 +1635,7 @@ const styles = StyleSheet.create({
         borderColor: 'rgba(217, 194, 183, 0.3)',
         flexShrink: 0,
     },
-    nearbyToggles: { position: 'absolute', top: 150, left: 12, right: 12, zIndex: 20 },
+    nearbyToggles: { position: 'absolute', top: 160, left: 12, right: 12, zIndex: 9 },
     nearbyToggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
     nearbyChip: {
         flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5,
@@ -1712,7 +1712,7 @@ const styles = StyleSheet.create({
     },
     floatingActionsRight: {
         position: 'absolute',
-        top: 180,
+        top: 230,
         right: spacing.md,
         alignItems: 'flex-end',
         gap: spacing.sm,
@@ -1759,7 +1759,7 @@ const styles = StyleSheet.create({
     },
     sosFab: {
         position: 'absolute',
-        bottom: 240,
+        bottom: 180,
         right: spacing.lg,
         width: 64,
         height: 64,

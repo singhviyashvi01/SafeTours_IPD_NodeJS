@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform, Dimensions } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const isSmallScreen = SCREEN_WIDTH < 380;
 import { Screen } from '../../components/Screen';
 import { Text } from '../../components/Text';
 import { GlassCard, InfoCard } from '../../components/ReusableCards';
@@ -203,15 +206,15 @@ export const HomeScreen = () => {
                 <View style={styles.rowCards}>
                     <InfoCard style={styles.halfCard}>
                         <View style={styles.halfCardHeader}>
-                            <Ionicons name="partly-sunny" size={24} color={colors.primary} />
-                            <Text variant="headlineMd" style={styles.halfCardValue}>{data?.weather?.temperature ?? '—'}{data?.weather?.temperature != null ? '°C' : ''}</Text>
+                            <Ionicons name="partly-sunny" size={22} color={colors.primary} />
+                            <Text style={styles.halfCardValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{data?.weather?.temperature ?? '—'}{data?.weather?.temperature != null ? '°C' : ''}</Text>
                         </View>
-                        <Text variant="labelMd" color={colors['on-surface-variant']}>{data?.weather?.weatherDescription || 'Weather unavailable'}</Text>
+                        <Text variant="labelMd" color={colors['on-surface-variant']} numberOfLines={2}>{data?.weather?.weatherDescription || 'Weather unavailable'}</Text>
                     </InfoCard>
                     <InfoCard style={styles.halfCard}>
                         <View style={styles.halfCardHeader}>
-                            <Ionicons name={conn.isOffline ? 'cloud-offline' : 'wifi'} size={24} color={net.color} />
-                            <Text variant="headlineMd" style={styles.halfCardValue}>{net.detail}</Text>
+                            <Ionicons name={conn.isOffline ? 'cloud-offline' : 'wifi'} size={22} color={net.color} />
+                            <Text style={[styles.halfCardValue, { color: net.color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{net.detail}</Text>
                         </View>
                         <Text variant="labelMd" color={colors['on-surface-variant']}>
                             {conn.forced ? 'Offline mode is ON (Settings)' : (conn.netType && conn.netType !== 'unknown' ? conn.netType : 'Unknown network')}
@@ -303,7 +306,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: 'rgba(0, 105, 110, 0.1)',
-        paddingHorizontal: spacing.sm,
+        paddingHorizontal: isSmallScreen ? spacing.xs : spacing.sm,
         paddingVertical: 4,
         borderRadius: shapes.roundedPill,
         borderWidth: 1,
@@ -319,6 +322,7 @@ const styles = StyleSheet.create({
     onlineText: {
         color: colors.tertiary,
         fontWeight: '600',
+        fontSize: isSmallScreen ? 10 : 12,
     },
     offlineBadge: {
         backgroundColor: colors['error-container'] || '#ffdad6',
@@ -394,7 +398,7 @@ const styles = StyleSheet.create({
     },
     rowCards: {
         flexDirection: 'row',
-        gap: spacing.md,
+        gap: spacing.sm,
         marginBottom: spacing.lg,
     },
     halfCard: {
@@ -402,15 +406,21 @@ const styles = StyleSheet.create({
         backgroundColor: colors['surface-container-lowest'],
         borderWidth: 1,
         borderColor: colors['surface-variant'],
+        minWidth: 0,
     },
     halfCardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
+        gap: spacing.xs,
         marginBottom: spacing.sm,
+        flexShrink: 1,
     },
     halfCardValue: {
         color: colors['on-surface'],
+        fontSize: isSmallScreen ? 15 : 17,
+        fontWeight: '700',
+        flexShrink: 1,
+        flexWrap: 'nowrap',
     },
     aiCard: {
         backgroundColor: colors['primary-fixed'],

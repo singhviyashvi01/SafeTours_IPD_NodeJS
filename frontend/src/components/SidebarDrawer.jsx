@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Modal, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Dimensions, Image, Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
 import { colors, shapes, spacing } from '../theme/theme';
 import { navigationRef, navigateTo } from '../navigation/navigationRef';
+import { useAuth } from '../context/AuthContext';
 
 const DRAWER_WIDTH = Math.min(Dimensions.get('window').width * 0.82, 320);
 
@@ -20,6 +21,7 @@ const MENU_ITEMS = [
  * Global navigation drawer component accessible from all screens.
  */
 export const SidebarDrawer = ({ visible, onClose, navigation: propNavigation, activeRoute: propActiveRoute }) => {
+  const { user } = useAuth();
   const [mounted, setMounted] = useState(visible);
   const slideX = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -83,6 +85,26 @@ export const SidebarDrawer = ({ visible, onClose, navigation: propNavigation, ac
             </View>
           </View>
 
+          {/* Profile Section */}
+          <Pressable style={styles.profileSection} onPress={() => { onClose(); if (propNavigation) propNavigation.navigate('Profile'); else if (navigationRef.isReady()) navigateTo('Profile'); }}>
+            <View style={styles.profileAvatar}>
+              {user?.profileImage
+                ? <Image source={{ uri: user.profileImage }} style={styles.profileAvatarImg} />
+                : <Ionicons name="person" size={26} color={colors.primary} />}
+            </View>
+            <View style={styles.profileInfo}>
+              <Text variant="labelLg" style={styles.profileName} numberOfLines={1}>
+                {user?.name || user?.firstName || user?.fullName || 'Traveler'}
+              </Text>
+              {user?.email ? (
+                <Text variant="labelMd" color={colors['on-surface-variant']} numberOfLines={1}>
+                  {user.email}
+                </Text>
+              ) : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors['on-surface-variant']} />
+          </Pressable>
+
           <View style={styles.menuList}>
             {MENU_ITEMS.map(item => {
               const selected = activeRoute === item.route && !item.opensCommunity;
@@ -116,9 +138,36 @@ const styles = StyleSheet.create({
     borderTopRightRadius: shapes.roundedXl, borderBottomRightRadius: shapes.roundedXl,
     shadowColor: '#000', shadowOffset: { width: 4, height: 0 }, shadowOpacity: 0.22, shadowRadius: 16, elevation: 16,
   },
-  drawerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  drawerHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   brand: { color: colors.primary, fontWeight: 'bold' },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: colors['surface-container-low'],
+    padding: spacing.md,
+    borderRadius: shapes.roundedLg,
+    borderWidth: 1,
+    borderColor: colors['surface-variant'],
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors['primary-container'],
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors['surface-variant'],
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  profileAvatarImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+  profileInfo: { flex: 1, minWidth: 0 },
+  profileName: { color: colors['on-surface'], fontWeight: '700' },
   menuList: { paddingHorizontal: spacing.md, gap: spacing.xs },
   menuItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 52, paddingHorizontal: spacing.md, borderRadius: shapes.roundedMd },
   menuItemSelected: { backgroundColor: colors['primary-container'] },
