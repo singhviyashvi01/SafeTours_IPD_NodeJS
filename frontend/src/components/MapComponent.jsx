@@ -12,6 +12,7 @@ if (Platform.OS !== 'web') {
     Polygon = Maps.Polygon;
 }
 
+
 /**
  * Helper to determine risk colors based on zone riskLevel or crimeScore
  */
@@ -115,6 +116,7 @@ export const MapComponent = forwardRef(({
             showsMyLocationButton={false}
             {...props}
         >
+
             {/* Render Danger Zones */}
             {dangerZones.map((zone, index) => {
                 const zoneId = zone._id || zone.hotspotId || zone.h3Index || `zone-${index}`;
