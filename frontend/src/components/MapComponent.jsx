@@ -4,19 +4,15 @@ import { colors } from '../theme/theme';
 import { Text } from './Text';
 import { NEARBY_TYPES } from '../services/nearby';
 
-let MapView, Marker, Circle, Polygon, UrlTile;
+let MapView, Marker, Circle, Polygon;
 if (Platform.OS !== 'web') {
     const Maps = require('react-native-maps');
     MapView = Maps.default;
     Marker = Maps.Marker;
     Circle = Maps.Circle;
     Polygon = Maps.Polygon;
-    UrlTile = Maps.UrlTile;
 }
 
-// Base map: OpenStreetMap raster tiles (no API key; OSM asks for attribution and light use, so use a tile
-// provider for production traffic). On Android the Google base map is switched off ('none'), so no Google key is needed.
-const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 const PALETTE = {
     SAFE: { fill: 'rgba(34, 197, 94, 0.3)', stroke: '#15803d', solid: '#22c55e', label: 'Safe' },
@@ -92,18 +88,16 @@ export const MapComponent = forwardRef(({
 
     // Native Platform Map View (Android & iOS)
     return (
-        <>
         <MapView
             ref={ref}
             style={styles.map}
             initialRegion={region}
             onRegionChangeComplete={onRegionChangeComplete}
-            mapType={Platform.OS === 'android' ? 'none' : mapType}
+            mapType={mapType}
             showsUserLocation={false}
             showsMyLocationButton={false}
             {...props}
         >
-            <UrlTile urlTemplate={OSM_TILES} maximumZ={19} tileSize={256} zIndex={-1} shouldReplaceMapContent={Platform.OS === 'ios'} />
 
             {/* Render Danger Zones */}
             {dangerZones.map((zone, index) => {
@@ -229,10 +223,6 @@ export const MapComponent = forwardRef(({
                 );
             })}
         </MapView>
-        <View pointerEvents="none" style={{ position: 'absolute', right: 6, bottom: 4, backgroundColor: 'rgba(255,255,255,0.8)', paddingHorizontal: 5, borderRadius: 3 }}>
-            <Text variant="labelSm" style={{ fontSize: 9 }}>© OpenStreetMap contributors</Text>
-        </View>
-        </>
     );
 });
 
