@@ -1,28 +1,41 @@
+
 {
   "name": "frontend",
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
     "@hookform/resolvers": "^5.4.0",
     "@react-native-community/netinfo": "^12.0.1",
     "@react-navigation/bottom-tabs": "^7.18.3",
     "@react-navigation/native": "^7.3.4",
     "@react-navigation/native-stack": "^7.17.6",
     "axios": "^1.18.1",
-    "expo": "~54.0.36",
-    "expo-constants": "~17.0.8",
-    "expo-location": "~19.0.8",
-    "expo-secure-store": "~15.0.8",
-    "expo-sms": "^57.0.1",
-    "expo-status-bar": "~3.0.9",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "expo": "~58.0.21",
+    "expo-asset": "~58.0.19",
+    "expo-audio": "~58.0.10",
+    "expo-constants": "~58.0.14",
+    "expo-crypto": "~58.0.7",
+    "expo-dev-client": "~58.0.17",
+    "expo-device": "~58.0.5",
+    "expo-font": "~58.0.11",
+    "expo-location": "~58.0.20",
+    "expo-notifications": "~58.1.7",
+    "expo-secure-store": "~58.0.2",
+    "expo-sms": "~58.0.2",
+    "expo-sqlite": "~58.0.14",
+    "expo-status-bar": "~58.0.4",
+    "expo-task-manager": "~58.0.12",
+    "h3-js": "^4.5.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "react-hook-form": "^7.80.0",
-    "react-native": "0.81.5",
-    "react-native-maps": "1.20.1",
-    "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0",
-    "react-native-web": "^0.21.0",
+    "react-native": "0.88.1",
+    "react-native-maps": "1.29.11",
+    "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
+    "react-native-volume-manager": "^2.2.0",
+    "react-native-web": "^0.21.4",
     "zod": "^4.4.3"
   },
   "scripts": {
@@ -34,6 +47,6 @@
   "private": true,
   "devDependencies": {
     "@react-native-community/cli": "^20.2.0",
-    "@react-native/metro-config": "^0.86.0"
+    "@react-native/metro-config": "^0.88.1"
   }
 }
