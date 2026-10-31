@@ -796,8 +796,7 @@ export const SafetyMapScreen = ({ route }) => {
                 userLocation={userLocation}
                 destinationMarker={destination}
                 onSelectDestination={handleOpenDestinationDetails}
-                // Offline on Android (Google Maps) draw no base tiles at all instead of a half-loaded grid.
-                mapType={conn.isOffline && Platform.OS === 'android' ? 'none' : mapType}
+                mapType={mapType}
                 dangerZones={filteredDangerZones}
                 communityIncidents={communityIncidents}
                 selectedZone={activeZone}
@@ -822,7 +821,7 @@ export const SafetyMapScreen = ({ route }) => {
                         {riskMeta?.source === 'device' && dangerZones.length
                             ? `cached risk cells, updated ${formatAge(Date.now() - riskMeta.fetchedAt) || 'just now'}`
                             : dangerZones.length ? 'showing last loaded cells' : 'no cached risk data here; download this area in Settings'}
-                        {Platform.OS === 'android' && conn.isOffline ? ' · base map blank' : ''}
+                        {Platform.OS === 'android' && conn.isOffline ? ' · base map may be blank' : ''}
                     </Text>
                 </View>
             )}
